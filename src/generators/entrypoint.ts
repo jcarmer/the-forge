@@ -82,9 +82,9 @@ start_comfyui() {
 # \`vite build --watch\` (rewrites web/dist, which the server reads per request). Falls back to the compiled build.
 if [ -f /opt/the-forge/src/cli.ts ] && [ -x /opt/the-forge/node_modules/.bin/tsx ]; then
   log "Starting Forge preview server (watch mode)..."
-  nohup bash -c 'cd /opt/the-forge && while true; do CHOKIDAR_USEPOLLING=1 TSX_WATCH_POLLING=1 node_modules/.bin/tsx watch --clear-screen=false src/cli.ts preview /projects; echo "[preview] exited ($?); restarting in 3s"; sleep 3; done' > /var/log/preview.log 2>&1 &
+  nohup bash -c 'cd /opt/the-forge && while true; do CHOKIDAR_USEPOLLING=1 CHOKIDAR_INTERVAL=2000 TSX_WATCH_POLLING=1 node_modules/.bin/tsx watch --clear-screen=false --ignore "web/**" --ignore "node_modules/**" --ignore "dist/**" --ignore ".git/**" --ignore "generated/**" --ignore ".forge-state/**" --ignore "test/**" src/cli.ts preview /projects; echo "[preview] exited ($?); restarting in 3s"; sleep 3; done' > /var/log/preview.log 2>&1 &
   if [ -x /opt/the-forge/web/node_modules/.bin/vite ]; then
-    nohup bash -c 'cd /opt/the-forge/web && while true; do CHOKIDAR_USEPOLLING=1 node_modules/.bin/vite build --watch; echo "[web-build] exited ($?); restarting in 5s"; sleep 5; done' > /var/log/preview-web-build.log 2>&1 &
+    nohup bash -c 'cd /opt/the-forge/web && while true; do CHOKIDAR_USEPOLLING=1 CHOKIDAR_INTERVAL=2000 node_modules/.bin/vite build --watch; echo "[web-build] exited ($?); restarting in 5s"; sleep 5; done' > /var/log/preview-web-build.log 2>&1 &
   else
     log "web/node_modules missing; UI will not auto-rebuild. Run: cd /opt/the-forge/web && npm install"
   fi

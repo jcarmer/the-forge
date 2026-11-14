@@ -11,7 +11,12 @@ import { createForgeRequestHandler, ForgeStateHub } from "../web-api/server.js";
 const execFileAsync = promisify(execFile);
 async function runAsync(cmd: string, args: string[], timeout = 30_000) {
   try {
-    const { stdout, stderr } = await execFileAsync(cmd, args, { timeout, encoding: "utf8" });
+    const { stdout, stderr } = await execFileAsync(cmd, args, {
+      timeout,
+      killSignal: "SIGKILL",
+      encoding: "utf8",
+      env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+    });
     return { code: 0, out: stdout + stderr };
   } catch (e: unknown) {
     const err = e as { code?: number; stdout?: string; stderr?: string };
