@@ -86,6 +86,7 @@ export function startPreviewLandingServer(manifest: Manifest, projectsRoot = "/p
 
   const server = createServer((req, res) => {
     const reqHost = (req.headers.host ?? manifest.network.tailscaleHostname).replace(/:\d+$/, "");
+    const tunnelUrl = `https://vscode.dev/tunnel/${manifest.network.tailscaleHostname}/projects`;
     const items = targets
       .map((p) => `<li><a href="http://${reqHost}:${p.port}">${p.name}</a> (<code>${p.branch}</code> on :${p.port} — ${p.state ?? "starting"})</li>`)
       .join("");
@@ -94,6 +95,7 @@ export function startPreviewLandingServer(manifest: Manifest, projectsRoot = "/p
 <style>body{font:16px/1.5 system-ui;max-width:680px;margin:3rem auto;padding:0 1rem}</style>
 <h1>The Forge (${reqHost})</h1>
 <ul>
+  <li><a href="${tunnelUrl}">VS Code Web (tunnel: ${manifest.network.tailscaleHostname})</a></li>
   <li><a href="http://${reqHost}:3773">T3 Code Orchestrator (:3773)</a></li>
   <li><a href="http://${reqHost}:8188">ComfyUI (:8188)</a></li>
 </ul>
