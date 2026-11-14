@@ -55,10 +55,10 @@ services:
       - C:/projects/local-only/meta/skills:/root/.gemini/config/skills
       - C:/projects/local-only/meta/tools:/root/.gemini/config/tools
       - C:/projects/local-only/meta/plugins:/root/.gemini/config/plugins
-      - ..:/opt/the-forge
+      - C:/projects/local-only/the-forge:/opt/the-forge
       - /var/run/docker.sock:/var/run/docker.sock
-      - ./entrypoint.sh:/usr/local/bin/entrypoint.sh
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - C:/projects/local-only/the-forge/generated/entrypoint.sh:/usr/local/bin/entrypoint.sh
+      - C:/projects/local-only/the-forge/generated/Caddyfile:/etc/caddy/Caddyfile:ro
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility

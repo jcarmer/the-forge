@@ -75,6 +75,13 @@ export function buildProvisionSteps(manifest: Manifest): ProvisionStep[] {
       },
     },
     {
+      name: "forge-cli-link",
+      check: () => run("bash", ["-lc", '[ -L /usr/local/bin/the-forge ] && [ -L /projects/the-forge ]']).code === 0,
+      apply: () => {
+        run("bash", ["-lc", 'chmod +x /opt/the-forge/dist/src/cli.js && ln -sf /opt/the-forge/dist/src/cli.js /usr/local/bin/the-forge && ln -sfn /opt/the-forge /projects/the-forge']);
+      },
+    },
+    {
       name: "t3-runtime-link",
       check: () => run("bash", ["-lc", "command -v t3 >/dev/null 2>&1"]).code === 0,
       apply: () => {

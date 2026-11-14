@@ -52,8 +52,10 @@ export function preflight(m: Manifest, dir: string): Check[] {
     detail: hasKey("GH_TOKEN") ? "set" : "not set (agents cannot push)",
     fix: "Create a fine-grained PAT (Contents read/write, selected repos only) and put it in .env.",
   });
-  for (const [label, path] of [["buddy.env", m.paths.buddyEnvFile], ["meta repo", m.paths.metaDir]] as const) {
-    checks.push({ name: label, ok: existsSync(path), detail: existsSync(path) ? path : `missing: ${path}`, fix: `Restore ${path} (see SETUP.md).` });
+  if (!existsSync("/.dockerenv")) {
+    for (const [label, path] of [["buddy.env", m.paths.buddyEnvFile], ["meta repo", m.paths.metaDir]] as const) {
+      checks.push({ name: label, ok: existsSync(path), detail: existsSync(path) ? path : `missing: ${path}`, fix: `Restore ${path} (see SETUP.md).` });
+    }
   }
   return checks;
 }

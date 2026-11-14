@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
@@ -170,8 +171,7 @@ switch (cmd) {
     if (b.code !== 0) { process.stdout.write(b.out); process.exitCode = b.code; break; }
     if (existsSync("/.dockerenv")) {
       // Spawn a detached helper container so `the_forge` can recreate itself without dying mid-command
-      const hostGen = run("docker", ["inspect", manifest.containerName, "--format", "{{range .Mounts}}{{if eq .Destination \"/opt/the-forge\"}}{{.Source}}{{end}}{{end}}"]).out.trim() + "/generated";
-      const r = run("docker", ["run", "--rm", "-d", "-v", "/var/run/docker.sock:/var/run/docker.sock", "-v", `${hostGen}:/work`, "-w", "/work", "docker:cli", "sh", "-c", "docker compose up -d --build"]);
+      const r = run("docker", ["run", "--rm", "-d", "-v", "/var/run/docker.sock:/var/run/docker.sock", "-v", `${manifest.paths.forgeDir}:/forge`, "-w", "/forge/generated", "docker:cli", "sh", "-c", "docker compose up -d --build"]);
       process.stdout.write(r.out);
       process.exitCode = r.code;
     } else {

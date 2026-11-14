@@ -16,6 +16,8 @@ export const ManifestSchema = z.object({
   }),
 
   paths: z.object({
+    /** Windows path of this `the-forge` repo (mounted at /opt/the-forge). */
+    forgeDir: z.string(),
     /** Windows path of the meta repo (rules/skills/tools/plugins are bind-mounted live from here). */
     metaDir: z.string(),
     /** Windows path of the buddy.env secrets file (mounted read-only). */

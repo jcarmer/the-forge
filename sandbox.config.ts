@@ -11,6 +11,7 @@ export default defineManifest({
   },
 
   paths: {
+    forgeDir: "C:/projects/local-only/the-forge",
     metaDir: "C:/projects/local-only/meta",
     buddyEnvFile: "C:/projects/local-only/buddy.env",
     legacySandboxDir: "C:/projects/sandbox",
