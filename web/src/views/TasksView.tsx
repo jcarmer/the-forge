@@ -38,7 +38,10 @@ export function TasksView({ tasks, repos }: { tasks: TaskRecord[]; repos: RepoSt
             <UI.Dropdown
               label="Repo"
               selected={repoDir}
-              options={repos.length ? repos.map((r) => ({ key: r.path, label: r.name })) : [{ key: "/projects/tbe", label: "tbe" }]}
+              options={repos.length
+                ? repos.map((r) => ({ key: r.path, label: r.name }))
+                : [{ key: "/projects/tbe", label: "tbe" }]
+              }
               onSelect={(k) => setRepoDir(k)}
             />
             <UI.Dropdown

@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync } from "node:fs";
+import { type Dirent, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { isPackageUpdateAvailable, type PackageConsumer, type PackageStatus, type RepoStatus } from "../state/forgeState.js";
@@ -34,6 +34,17 @@ function readPkgJson(dir: string): PackageJsonLite | null {
   }
 }
 
+/** True for real directories and for symlinks that resolve to one (e.g. /projects/the-forge -> /opt/the-forge). */
+function isDirLike(projectsRoot: string, e: Dirent): boolean {
+  if (e.isDirectory()) return true;
+  if (!e.isSymbolicLink()) return false;
+  try {
+    return statSync(join(projectsRoot, e.name)).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
 /** Scans git repositories under `projectsRoot` (and nested `web/` if present) for branch/dirty/unpushed status. */
 export async function scanRepos(projectsRoot: string): Promise<RepoStatus[]> {
   if (!existsSync(projectsRoot)) return [];
@@ -41,7 +52,7 @@ export async function scanRepos(projectsRoot: string): Promise<RepoStatus[]> {
   const entries = readdirSync(projectsRoot, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name));
 
   for (const e of entries) {
-    if (!e.isDirectory() || e.name.startsWith(".")) continue;
+    if (!isDirLike(projectsRoot, e) || e.name.startsWith(".")) continue;
     const dir = join(projectsRoot, e.name);
     if (!existsSync(join(dir, ".git"))) continue;
 
@@ -100,7 +111,7 @@ export function scanPackages(projectsRoot: string, repos: RepoStatus[]): Package
 
   const packages: PackageStatus[] = [];
   for (const e of readdirSync(projectsRoot, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
-    if (!e.isDirectory() || e.name.startsWith(".")) continue;
+    if (!isDirLike(projectsRoot, e) || e.name.startsWith(".")) continue;
     const dir = join(projectsRoot, e.name);
     const pkg = readPkgJson(dir);
     if (!pkg?.name?.startsWith("@tbe/") || !pkg.version) continue;
@@ -186,7 +197,7 @@ export async function buildPackage(projectsRoot: string, pkgName: string): Promi
 
 export function readPackageApiDts(projectsRoot: string, pkgName: string): string | null {
   for (const e of readdirSync(projectsRoot, { withFileTypes: true })) {
-    if (!e.isDirectory() || e.name.startsWith(".")) continue;
+    if (!isDirLike(projectsRoot, e) || e.name.startsWith(".")) continue;
     const dir = join(projectsRoot, e.name);
     const pkg = readPkgJson(dir);
     if (pkg?.name !== pkgName) continue;
