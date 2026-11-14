@@ -48,7 +48,7 @@ services:
       - ai_sandbox_claude_config:/root/.claude
       - ai_sandbox_t3_config:/root/.t3
       - ai_sandbox_comfyui_data:/root/comfyui
-      - ai_sandbox_vscode_cli:/root/.vscode-cli
+      - ai_sandbox_vscode_cli:/root/.vscode
       - C:/projects/local-only/buddy.env:/root/.buddy/.env:ro
       - C:/projects/local-only/meta/antigravity-data:/root/.gemini
       - C:/projects/local-only/meta/rules:/root/.gemini/config/rules

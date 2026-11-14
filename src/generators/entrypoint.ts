@@ -94,12 +94,12 @@ if [ -f /opt/the-forge/dist/src/cli.js ]; then
 fi
 nohup caddy run --config /etc/caddy/Caddyfile > /var/log/caddy.log 2>&1 &
 
-# 10. VS Code tunnel (first run needs a one-time login: sandboxctl tunnel-login)
-if [ -d /root/.vscode-cli ] && ls /root/.vscode-cli/*token* >/dev/null 2>&1; then
+# 10. VS Code tunnel (first run needs a one-time login: the-forge tunnel-login)
+if [ -d /root/.vscode/cli ] && [ -n "$(ls -A /root/.vscode/cli 2>/dev/null)" ]; then
   log "Starting VS Code tunnel..."
   nohup code tunnel --accept-server-license-terms --name ${m.network.tailscaleHostname} > /var/log/vscode-tunnel.log 2>&1 &
 else
-  log "VS Code tunnel not signed in yet. Run: sandboxctl tunnel-login"
+  log "VS Code tunnel not signed in yet. Run: npx tsx src/cli.ts tunnel-login"
 fi
 
 log "Environment initialized."

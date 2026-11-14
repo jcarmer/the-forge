@@ -40,7 +40,7 @@ export default defineManifest({
     claude_config: { mount: "/root/.claude", description: "Claude Code credentials" },
     t3_config: { mount: "/root/.t3", description: "T3 Code configuration" },
     comfyui_data: { mount: "/root/comfyui", description: "ComfyUI install, venv, nodes, models" },
-    vscode_cli: { mount: "/root/.vscode-cli", description: "VS Code tunnel login and server" },
+    vscode_cli: { mount: "/root/.vscode", description: "VS Code tunnel login and server" },
   },
 
   ollama: {

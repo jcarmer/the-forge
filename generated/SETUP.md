@@ -37,7 +37,7 @@ npx tsx src/cli.ts doctor
 | claude_config | /root/.claude | Claude Code credentials |
 | t3_config | /root/.t3 | T3 Code configuration |
 | comfyui_data | /root/comfyui | ComfyUI install, venv, nodes, models |
-| vscode_cli | /root/.vscode-cli | VS Code tunnel login and server |
+| vscode_cli | /root/.vscode | VS Code tunnel login and server |
 
 Repos live on a Linux volume (`/projects`), not a Windows mount. GitHub is the sync point.
 
