@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { createWriteStream, existsSync, readdirSync } from "node:fs";
+import { createWriteStream, existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { join } from "node:path";
 import type { Manifest } from "../schema.js";
@@ -53,6 +53,29 @@ export function syncPreviewWorktrees(projectsRoot: string, integrationBranch: st
     if (r.code === 0 && !r.out.includes("Already up to date")) updated.push(e.name);
   }
   return updated;
+}
+
+/** Rebuilds and reinstalls TBE's VS Code extension into the tunnel server whenever its source changes. */
+export function syncTbeVscodeExtension(projectsRoot: string): boolean {
+  const tbeDir = join(projectsRoot, "tbe");
+  const extDir = join(tbeDir, "tools", "vscode");
+  if (!existsSync(extDir)) return false;
+
+  const rev = run("git", ["-C", tbeDir, "rev-parse", "HEAD:tools/vscode", "HEAD:tools/modeling/viewer"]).out.trim();
+  const stamp = "/tmp/tbe-vscode.rev";
+  if (rev && existsSync(stamp) && readFileSync(stamp, "utf8").trim() === rev) return false;
+
+  const cmd = [
+    "cd /projects/tbe/tools/modeling/viewer && pnpm build",
+    "cd /projects/tbe/tools/vscode && pnpm build && pnpm package",
+    "for srv in /root/.vscode/cli/servers/*/server/bin/code-server; do [ -x \"$srv\" ] && \"$srv\" --install-extension /projects/tbe/tools/vscode/tbe-vscode.vsix --force; done",
+  ].join(" && ");
+  const r = run("bash", ["-lc", cmd]);
+  if (r.code === 0 && rev) {
+    writeFileSync(stamp, rev, "utf8");
+    return true;
+  }
+  return false;
 }
 
 function superviseTarget(t: PreviewTarget, manifest?: Manifest) {

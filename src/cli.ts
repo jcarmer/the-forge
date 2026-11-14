@@ -9,7 +9,7 @@ import { collectUsage } from "./usage/collector.js";
 import { pickProvider, type TaskComplexity } from "./usage/router.js";
 import { UsageSnapshotSchema, type ProviderName } from "./usage/schema.js";
 import { syncMainToIntegration, createTaskWorktree, mergeTaskWorktree } from "./git/worktree.js";
-import { startPreviewLandingServer, syncPreviewWorktrees } from "./preview/supervisor.js";
+import { startPreviewLandingServer, syncPreviewWorktrees, syncTbeVscodeExtension } from "./preview/supervisor.js";
 import { checkCoderModelUpdates } from "./healthcheck/models.js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -133,7 +133,11 @@ switch (cmd) {
   case "preview": {
     const projectsRoot = rest[0] ?? "/projects";
     startPreviewLandingServer(manifest, projectsRoot, 5173);
-    setInterval(() => syncPreviewWorktrees(projectsRoot, manifest.git.integrationBranch), 30_000);
+    syncTbeVscodeExtension(projectsRoot);
+    setInterval(() => {
+      syncPreviewWorktrees(projectsRoot, manifest.git.integrationBranch);
+      syncTbeVscodeExtension(projectsRoot);
+    }, 30_000);
     console.log("Preview landing server listening on :5173");
     break;
   }
