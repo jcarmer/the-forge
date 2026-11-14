@@ -68,6 +68,13 @@ export function buildProvisionSteps(manifest: Manifest): ProvisionStep[] {
       },
     },
     {
+      name: "claude-config-persist",
+      check: () => run("bash", ["-lc", '[ -L /root/.claude.json ] && [ "$(readlink /root/.claude.json)" = "/root/.claude/.claude.json" ]']).code === 0,
+      apply: () => {
+        run("bash", ["-lc", 'mkdir -p /root/.claude; if [ -f /root/.claude.json ] && [ ! -L /root/.claude.json ] && [ ! -f /root/.claude/.claude.json ]; then mv /root/.claude.json /root/.claude/.claude.json; fi; [ -f /root/.claude/.claude.json ] || echo "{}" > /root/.claude/.claude.json; ln -sf /root/.claude/.claude.json /root/.claude.json']);
+      },
+    },
+    {
       name: "t3-runtime-link",
       check: () => run("bash", ["-lc", "command -v t3 >/dev/null 2>&1"]).code === 0,
       apply: () => {
