@@ -11,6 +11,7 @@ import { UsageSnapshotSchema, type ProviderName } from "./usage/schema.js";
 import { syncMainToIntegration, createTaskWorktree, mergeTaskWorktree } from "./git/worktree.js";
 import { startPreviewLandingServer, syncPreviewWorktrees, syncTbeVscodeExtension } from "./preview/supervisor.js";
 import { checkCoderModelUpdates } from "./healthcheck/models.js";
+import { buildProvisionSteps, checkAuthStatus, runProvision } from "./provision/steps.js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const dir = resolve(root, "generated");
@@ -141,6 +142,35 @@ switch (cmd) {
     console.log("Preview landing server listening on :5173");
     break;
   }
+  case "provision": {
+    const outcomes = runProvision(buildProvisionSteps(manifest));
+    let failed = 0;
+    for (const o of outcomes) {
+      if (o.status === "failed") failed++;
+      console.log(`[Provision] ${o.name}: ${o.status}${o.detail ? ` (${o.detail})` : ""}`);
+    }
+    process.exitCode = failed ? 1 : 0;
+    break;
+  }
+  case "auth-status": {
+    process.exitCode = printChecks(checkAuthStatus(manifest).map((a) => ({ name: a.service, ok: a.ok, detail: a.ok ? "authenticated" : "missing", fix: a.fix }))) ? 0 : 1;
+    break;
+  }
+  case "rebuild": {
+    writeAll(manifest, dir);
+    const b = run("npm", ["run", "build"], { cwd: root });
+    if (b.code !== 0) { process.stdout.write(b.out); process.exitCode = b.code; break; }
+    if (existsSync("/.dockerenv")) {
+      // Spawn a detached helper container so `the_forge` can recreate itself without dying mid-command
+      const hostGen = run("docker", ["inspect", manifest.containerName, "--format", "{{range .Mounts}}{{if eq .Destination \"/opt/the-forge\"}}{{.Source}}{{end}}{{end}}"]).out.trim() + "/generated";
+      const r = run("docker", ["run", "--rm", "-d", "-v", "/var/run/docker.sock:/var/run/docker.sock", "-v", `${hostGen}:/work`, "-w", "/work", "docker:cli", "sh", "-c", "docker compose up -d --build"]);
+      process.stdout.write(r.out);
+      process.exitCode = r.code;
+    } else {
+      process.exitCode = compose(["up", "-d", "--build"]);
+    }
+    break;
+  }
   case "usage": {
     const target = rest[0] ?? manifest.containerName;
     const snap = await collectUsage(manifest, stateDir, { containerName: target });
@@ -187,5 +217,5 @@ switch (cmd) {
     break;
   }
   default:
-    console.log("the-forge <generate|init|build|up|down|status|doctor|logs [svc]|tunnel-login|healthcheck|migrate-check|clone|usage [container]|route [trivial|normal|hard]>");
+    console.log("the-forge <generate|init|build|up|down|rebuild|provision|auth-status|status|doctor|logs [svc]|tunnel-login|healthcheck|migrate-check|clone|usage|route|sync|worktree|preview>");
 }

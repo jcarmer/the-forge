@@ -4,6 +4,8 @@ import { z } from "zod";
 export const ManifestSchema = z.object({
   projectName: z.string().default("ai-sandbox"),
   containerName: z.string().default("ai_dev_sandbox"),
+  /** Allow agents inside the container to edit `the-forge` and recreate the container via Docker socket. */
+  selfRebuild: z.boolean().default(true),
 
   network: z.object({
     /** Tailscale node name; the container is its own tailnet node. */

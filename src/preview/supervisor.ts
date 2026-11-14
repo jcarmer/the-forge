@@ -78,12 +78,14 @@ export function syncTbeVscodeExtension(projectsRoot: string): boolean {
   return false;
 }
 
-function superviseTarget(t: PreviewTarget, manifest?: Manifest) {
+function superviseTarget(t: PreviewTarget, manifest?: Manifest, backoffMs = 5000) {
   t.state = "starting";
+  const startedAt = Date.now();
   const log = createWriteStream(`/var/log/preview-${t.name}.log`, { flags: "a" });
   const boot = `[ ! -d node_modules ] && pnpm install; exec ${t.command}`;
   const child = spawn("bash", ["-lc", boot], {
     cwd: t.dir,
+    detached: true,
     env: {
       ...process.env,
       PORT: String(t.port),
@@ -97,8 +99,13 @@ function superviseTarget(t: PreviewTarget, manifest?: Manifest) {
   child.stderr?.pipe(log, { end: false });
   child.on("exit", (code) => {
     t.state = "stopped";
-    log.write(`[preview] ${t.name} exited (${code}); restarting in 5s\n`);
-    setTimeout(() => superviseTarget(t, manifest), 5000);
+    // Kill the whole process group (Vite/tsc children) so restarts never leak PIDs
+    if (child.pid) {
+      try { process.kill(-child.pid, "SIGKILL"); } catch { /* already gone */ }
+    }
+    const nextBackoff = Date.now() - startedAt > 30_000 ? 5000 : Math.min(backoffMs * 2, 60_000);
+    log.write(`[preview] ${t.name} exited (${code}); restarting in ${nextBackoff / 1000}s\n`);
+    setTimeout(() => superviseTarget(t, manifest, nextBackoff), nextBackoff);
   });
 }
 

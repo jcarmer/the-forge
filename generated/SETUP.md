@@ -22,9 +22,10 @@ npx tsx src/cli.ts doctor
 ```
 
 ### One-time logins on a new machine
-- `docker exec -it the_forge claude auth login` (Claude Pro subscription)
-- `docker exec -it the_forge agy` (Antigravity Google login)
-- `npx tsx src/cli.ts tunnel-login` then `npx tsx src/cli.ts up` (VS Code tunnel)
+Run `npx tsx src/cli.ts auth-status` to see which logins are missing and their exact 1-line commands. (Setting `CLAUDE_CODE_OAUTH_TOKEN` from `claude setup-token` in `.env` makes Claude zero-touch.)
+
+### Managing The Forge from inside the container
+All environment configuration lives in `sandbox.config.ts` and idempotent TypeScript modules in `src/provision/steps.ts` (run automatically on boot via `provision`). Edit those inside `/opt/the-forge`, then run `node /opt/the-forge/dist/src/cli.js rebuild` to recreate the container from within.
 
 ## 4. Services (reachable on the tailnet node, not on Windows localhost)
 | Service | Port | Purpose |

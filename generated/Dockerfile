@@ -11,7 +11,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates curl wget git build-essential unzip jq procps python3 python3-pip ripgrep \
     libfontconfig1 libxcursor1 libxinerama1 libxrandr2 libxi6 libasound2 libpulse0 libgl1 libvulkan1 \
-    zlib1g zstd gnupg debian-keyring debian-archive-keyring apt-transport-https \
+    zlib1g zstd gnupg debian-keyring debian-archive-keyring apt-transport-https docker.io docker-compose-v2 \
     && rm -rf /var/lib/apt/lists/*
 
 # .NET SDK

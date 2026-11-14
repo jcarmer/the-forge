@@ -17,7 +17,8 @@ export function renderAll(m: Manifest): Record<string, string> {
     ".env.example": [
       `${m.network.authKeyEnv}=tskey-auth-xxxxxxxx   # reusable key tagged ${m.network.tailscaleTag}`,
       "GH_TOKEN=github_pat_xxxxxxxx           # fine-grained, Contents read/write on selected repos",
-      "ANTHROPIC_API_KEY=                      # optional",
+      "CLAUDE_CODE_OAUTH_TOKEN=                # optional: `claude setup-token` for zero-touch subscription auth",
+      "ANTHROPIC_API_KEY=                      # optional (leave empty to use Claude Pro subscription)",
       "",
     ].join("\n"),
   };

@@ -55,7 +55,8 @@ services:
       - C:/projects/local-only/meta/skills:/root/.gemini/config/skills
       - C:/projects/local-only/meta/tools:/root/.gemini/config/tools
       - C:/projects/local-only/meta/plugins:/root/.gemini/config/plugins
-      - ..:/opt/the-forge:ro
+      - ..:/opt/the-forge
+      - /var/run/docker.sock:/var/run/docker.sock
       - ./entrypoint.sh:/usr/local/bin/entrypoint.sh
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
     environment:
@@ -64,6 +65,7 @@ services:
       - DOTNET_CLI_TELEMETRY_OPTOUT=1
       - GH_TOKEN=${GH_TOKEN:-}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN:-}
       - OLLAMA_FLASH_ATTENTION=1
       - OLLAMA_KV_CACHE_TYPE=q8_0
       - OLLAMA_KEEP_ALIVE=24h

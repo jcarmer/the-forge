@@ -22,23 +22,11 @@ for MODEL in "\${MODELS[@]}"; do
 done
 nohup curl -s http://127.0.0.1:11434/api/generate -d "{\\"model\\": \\"$OLLAMA_MODEL\\", \\"prompt\\": \\"ready\\", \\"stream\\": false, \\"options\\": {\\"num_ctx\\": 32768}}" > /dev/null 2>&1 &
 
-# 2. Git defaults and scoped GitHub token
-git config --global --add safe.directory "*"
-git config --global worktree.useRelativePaths true
-if [ -n "$GH_TOKEN" ]; then
-  log "Configuring GitHub token authentication..."
-  git config --global url."https://x-access-token:\${GH_TOKEN}@github.com/".insteadOf "https://github.com/"
-else
-  log "GH_TOKEN not set: pushes will fail until it is added to .env (run: sandboxctl doctor)."
+# 2. Idempotent TypeScript provisioner (git, VS Code workspace settings, MCP, T3 link)
+if [ -f /opt/the-forge/dist/src/cli.js ]; then
+  log "Running TypeScript provisioner..."
+  node /opt/the-forge/dist/src/cli.js provision || true
 fi
-
-# 3. Antigravity config (MCP helper for local GPU tools)
-mkdir -p /root/.gemini/config
-[ -f /root/.gemini/config/tools/ollama_helper_mcp.py ] && chmod +x /root/.gemini/config/tools/ollama_helper_mcp.py
-cat > /root/.gemini/config/mcp_config.json <<'EOF'
-{ "mcpServers": { "ollama-helper": { "command": "python3", "args": ["-u", "/root/.gemini/config/tools/ollama_helper_mcp.py"], "env": { "PYTHONUNBUFFERED": "1" } } } }
-EOF
-command -v claude >/dev/null 2>&1 && claude mcp add -s user ollama-helper -- python3 /root/.gemini/config/tools/ollama_helper_mcp.py 2>/dev/null || true
 
 # 4. Token-Saver
 TS_BIN=/root/.gemini/config/plugins/token-saver/bin/token-saver
