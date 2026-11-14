@@ -2,7 +2,7 @@ import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import manifest from "../sandbox.config.js";
 import { writeAll } from "./generators/index.js";
-import { preflight, doctor, drift, run, type Check } from "./ops.js";
+import { preflight, doctor, drift, run, migrateCheck, cloneRepos, type Check } from "./ops.js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const dir = resolve(root, "generated");
@@ -77,6 +77,28 @@ switch (cmd) {
     process.exitCode = d.length ? 1 : 0;
     break;
   }
+  case "build":
+    writeAll(manifest, dir);
+    process.exitCode = compose(["build"]);
+    break;
+  case "migrate-check": {
+    let warn = 0;
+    for (const r of migrateCheck(manifest)) {
+      if (r.status === "warn") warn++;
+      console.log(`${r.status === "ok" ? "OK  " : "WARN"} ${r.dir}: ${r.note}`);
+    }
+    console.log(warn ? `\n${warn} item(s) need attention before cutover.` : "\nReady to migrate.");
+    break;
+  }
+  case "clone": {
+    let bad = 0;
+    for (const r of cloneRepos(manifest)) {
+      if (!r.ok) bad++;
+      console.log(`${r.ok ? "OK  " : "FAIL"} ${r.name}: ${r.detail}`);
+    }
+    process.exitCode = bad ? 1 : 0;
+    break;
+  }
   default:
-    console.log("sandboxctl <generate|init|up|down|status|doctor|logs [svc]|tunnel-login|healthcheck>");
+    console.log("the-forge <generate|init|build|up|down|status|doctor|logs [svc]|tunnel-login|healthcheck|migrate-check|clone>");
 }

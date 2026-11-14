@@ -2,7 +2,7 @@
 services:
   tailscale:
     image: tailscale/tailscale:stable
-    container_name: ai_dev_sandbox_tailscale
+    container_name: the_forge_tailscale
     hostname: ai-sandbox
     restart: unless-stopped
     environment:
@@ -24,7 +24,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: ai_dev_sandbox
+    container_name: the_forge
     restart: unless-stopped
     network_mode: service:tailscale
     depends_on:

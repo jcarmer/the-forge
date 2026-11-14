@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import type { Manifest } from "./schema.js";
 import { renderAll } from "./generators/index.js";
@@ -92,6 +92,44 @@ export function doctor(m: Manifest): Check[] {
 }
 
 export type Drift = { kind: "config" | "facts" | "live"; message: string };
+
+/** Reports what would be lost or leaked when moving from the old bind-mounted workspace to the volume. */
+export function migrateCheck(m: Manifest): { dir: string; status: "ok" | "warn"; note: string }[] {
+  const root = m.paths.legacySandboxDir;
+  if (!root || !existsSync(root)) return [{ dir: root ?? "(unset)", status: "warn", note: "legacy workspace not found" }];
+  const known = new Set(m.repos.map((r) => r.name));
+  const rows: { dir: string; status: "ok" | "warn"; note: string }[] = [];
+  for (const e of readdirSync(root, { withFileTypes: true })) {
+    if (!e.isDirectory() || e.name.startsWith(".")) continue;
+    const p = join(root, e.name);
+    if (!existsSync(join(p, ".git"))) {
+      rows.push({ dir: e.name, status: "warn", note: "not a git repo: copy it into the volume manually (or back it up); `clone` will not bring it over" });
+      continue;
+    }
+    const git = (...a: string[]) => run("git", ["-C", p, ...a]).out.trim();
+    const dirty = git("status", "--short").split("\n").filter((l) => l && !l.startsWith("warning")).length;
+    const unpushed = git("log", "--branches", "--not", "--remotes", "--oneline").split("\n").filter(Boolean).length;
+    const remote = git("remote", "get-url", "origin");
+    const notes: string[] = [];
+    if (!remote) notes.push("no remote: it can only be copied, not cloned");
+    if (/\/\/[^/@]+:[^@]+@/.test(remote)) notes.push("remote URL contains an embedded credential: rotate that token and clean the URL");
+    if (dirty) notes.push(`${dirty} uncommitted change(s): commit/push before migrating`);
+    if (unpushed) notes.push(`${unpushed} unpushed commit(s)`);
+    if (remote && !known.has(e.name)) notes.push("not listed in manifest `repos`");
+    rows.push({ dir: e.name, status: notes.length ? "warn" : "ok", note: notes.join("; ") || "clean and pushed" });
+  }
+  return rows;
+}
+
+/** Clones every manifest repo missing from /projects inside the running container. */
+export function cloneRepos(m: Manifest): { name: string; ok: boolean; detail: string }[] {
+  return m.repos.map((r) => {
+    const cmd = `[ -d /projects/${r.name}/.git ] && echo exists || git clone ${r.url} /projects/${r.name} 2>&1 | tail -n 2`;
+    const res = run("docker", ["exec", m.containerName, "bash", "-lc", cmd]);
+    const ok = res.code === 0 && !/fatal|error/i.test(res.out);
+    return { name: r.name, ok, detail: res.out.trim().split("\n").pop() ?? "" };
+  });
+}
 
 /** Detects hand-edited generated files, stale SETUP.md facts, and live-vs-manifest mismatches. */
 export function drift(m: Manifest, dir: string): Drift[] {

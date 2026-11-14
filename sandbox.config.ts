@@ -2,7 +2,8 @@ import { defineManifest } from "./src/schema.js";
 
 export default defineManifest({
   projectName: "ai-sandbox",
-  containerName: "ai_dev_sandbox",
+  // Distinct from the legacy `ai_dev_sandbox` so both can coexist until cutover.
+  containerName: "the_forge",
 
   network: {
     tailscaleHostname: "ai-sandbox",
@@ -12,7 +13,17 @@ export default defineManifest({
   paths: {
     metaDir: "C:/projects/local-only/meta",
     buddyEnvFile: "C:/projects/local-only/buddy.env",
+    legacySandboxDir: "C:/projects/sandbox",
   },
+
+  repos: [
+    { name: "buddy", url: "https://github.com/jcarmer/buddy" },
+    { name: "buddy-memory", url: "https://github.com/jcarmer/buddy-memory" },
+    { name: "last-days-campaign", url: "https://github.com/jcarmer/last-days-campaign" },
+    { name: "obsidian-plugin", url: "https://github.com/jcarmer/obsidian-plugin" },
+    { name: "script-model", url: "https://github.com/jcarmer/script-model" },
+    { name: "tbe", url: "https://github.com/jcarmer/tbe" },
+  ],
 
   services: [
     { name: "t3", port: 3773, description: "T3 Code orchestration UI", start: "t3 serve --host 0.0.0.0" },

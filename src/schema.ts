@@ -18,7 +18,19 @@ export const ManifestSchema = z.object({
     metaDir: z.string(),
     /** Windows path of the buddy.env secrets file (mounted read-only). */
     buddyEnvFile: z.string(),
+    /** Old bind-mounted workspace on Windows; only read by `migrate-check`. */
+    legacySandboxDir: z.string().optional(),
   }),
+
+  /** Repos cloned into the repos volume by `clone`. URLs must NOT contain credentials. */
+  repos: z
+    .array(
+      z.object({
+        name: z.string(),
+        url: z.string().regex(/^https:\/\/github\.com\/[^@/]+\/[^@]+$/, "use a plain https://github.com/... URL with no credentials"),
+      }),
+    )
+    .default([]),
 
   /** Web services reachable on the tailnet. `caddyPath` exposes them via the preview proxy. */
   services: z.array(
