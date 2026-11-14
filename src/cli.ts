@@ -13,6 +13,8 @@ import { syncMainToIntegration, createTaskWorktree, mergeTaskWorktree } from "./
 import { startPreviewLandingServer, syncPreviewWorktrees, syncTbeVscodeExtension } from "./preview/supervisor.js";
 import { checkCoderModelUpdates } from "./healthcheck/models.js";
 import { buildProvisionSteps, checkAuthStatus, runProvision } from "./provision/steps.js";
+import { executeTask } from "./worker/runner.js";
+import { taskStorePath, upsertTaskRecord } from "./worker/taskStore.js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const dir = resolve(root, "generated");
@@ -224,6 +226,37 @@ switch (cmd) {
     process.exitCode = bad ? 1 : 0;
     break;
   }
+  case "dispatch": {
+    const flag = (k: string) => {
+      const i = rest.indexOf(k);
+      return i >= 0 ? rest[i + 1] : undefined;
+    };
+    const repoDir = flag("--repo") ?? process.cwd();
+    const complexity = (flag("--complexity") as TaskComplexity) || "normal";
+    const prompt = flag("--prompt") ?? rest.filter((a) => !a.startsWith("--")).join(" ");
+    if (!prompt) {
+      console.error("Usage: sandboxctl dispatch --repo <dir> --complexity <trivial|normal|hard> --prompt <text>");
+      process.exitCode = 1;
+      break;
+    }
+    const id = `task-${Date.now().toString(36)}`;
+    const startedAt = new Date().toISOString();
+    const storeFile = taskStorePath(existsSync("/var/lib/the-forge") ? "/var/lib/the-forge" : stateDir);
+    upsertTaskRecord({ id, repoDir, prompt, complexity, status: "running", startedAt, merged: false, attempts: [] }, storeFile);
+    const snap = await collectUsage(manifest, stateDir);
+    const outcome = await executeTask(manifest, snap, { id, repoDir, prompt, complexity });
+    upsertTaskRecord({
+      id, repoDir, prompt, complexity,
+      status: outcome.ok ? "passed" : "failed",
+      startedAt,
+      finishedAt: new Date().toISOString(),
+      merged: outcome.merged,
+      attempts: outcome.attempts,
+    }, storeFile);
+    console.log(JSON.stringify(outcome, null, 2));
+    process.exitCode = outcome.ok ? 0 : 1;
+    break;
+  }
   default:
-    console.log("the-forge <generate|init|build|up|down|rebuild|provision|auth-status|status|doctor|logs [svc]|tunnel-login|healthcheck|migrate-check|clone|usage|route|sync|worktree|preview>");
+    console.log("the-forge <generate|init|build|up|down|rebuild|provision|auth-status|status|doctor|logs [svc]|tunnel-login|healthcheck|migrate-check|clone|usage|route|dispatch|sync|worktree|preview>");
 }

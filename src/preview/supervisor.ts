@@ -1,10 +1,12 @@
-import { execFile, spawn } from "node:child_process";
+import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { createWriteStream, existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import type { Manifest } from "../schema.js";
 import { loadProjectConfig } from "../gate/standards.js";
+import { createForgeRequestHandler, ForgeStateHub } from "../web-api/server.js";
 
 const execFileAsync = promisify(execFile);
 async function runAsync(cmd: string, args: string[], timeout = 30_000) {
@@ -24,6 +26,9 @@ export interface PreviewTarget {
   port: number;
   command: string;
   state?: "starting" | "running" | "stopped";
+  child?: ChildProcess;
+  manualStop?: boolean;
+  restartTimer?: ReturnType<typeof setTimeout>;
 }
 
 /** Discovers previewable projects from manifest `previews` plus `.agents/project.yml` / `dev:host`. */
@@ -89,7 +94,20 @@ export async function syncTbeVscodeExtension(projectsRoot: string): Promise<bool
   return false;
 }
 
+function killTargetGroup(t: PreviewTarget) {
+  if (t.restartTimer) {
+    clearTimeout(t.restartTimer);
+    t.restartTimer = undefined;
+  }
+  if (t.child?.pid) {
+    try { process.kill(-t.child.pid, "SIGKILL"); } catch { /* already gone */ }
+  }
+  t.child = undefined;
+  t.state = "stopped";
+}
+
 function superviseTarget(t: PreviewTarget, manifest?: Manifest, backoffMs = 5000) {
+  t.manualStop = false;
   t.state = "starting";
   const startedAt = Date.now();
   const log = createWriteStream(`/var/log/preview-${t.name}.log`, { flags: "a" });
@@ -105,44 +123,68 @@ function superviseTarget(t: PreviewTarget, manifest?: Manifest, backoffMs = 5000
       __VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS: manifest?.network.tailscaleHostname ?? "ai-sandbox",
     },
   });
+  t.child = child;
   t.state = "running";
   child.stdout?.pipe(log, { end: false });
   child.stderr?.pipe(log, { end: false });
   child.on("exit", (code) => {
     t.state = "stopped";
-    // Kill the whole process group (Vite/tsc children) so restarts never leak PIDs
     if (child.pid) {
       try { process.kill(-child.pid, "SIGKILL"); } catch { /* already gone */ }
     }
+    if (t.manualStop) {
+      log.write(`[preview] ${t.name} stopped by user\n`);
+      return;
+    }
     const nextBackoff = Date.now() - startedAt > 30_000 ? 5000 : Math.min(backoffMs * 2, 60_000);
     log.write(`[preview] ${t.name} exited (${code}); restarting in ${nextBackoff / 1000}s\n`);
-    setTimeout(() => superviseTarget(t, manifest, nextBackoff), nextBackoff);
+    t.restartTimer = setTimeout(() => superviseTarget(t, manifest, nextBackoff), nextBackoff);
   });
 }
 
-/** Spawns supervised dev servers for all preview targets and serves the landing page on port 5173. */
+/** Spawns supervised dev servers for all preview targets and serves the Forge web app + API on port 5173. */
 export function startPreviewLandingServer(manifest: Manifest, projectsRoot = "/projects", port = 5173) {
   const targets = discoverPreviews(projectsRoot, manifest);
   for (const t of targets) superviseTarget(t, manifest);
 
-  const server = createServer((req, res) => {
-    const reqHost = (req.headers.host ?? manifest.network.tailscaleHostname).replace(/:\d+$/, "");
-    const tunnelUrl = `https://vscode.dev/tunnel/${manifest.network.tailscaleHostname}/projects`;
-    const items = targets
-      .map((p) => `<li><a href="http://${reqHost}:${p.port}">${p.name}</a> (<code>${p.branch}</code> on :${p.port} — ${p.state ?? "starting"})</li>`)
-      .join("");
-    res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-    res.end(`<!doctype html><title>The Forge — Previews</title>
-<style>body{font:16px/1.5 system-ui;max-width:680px;margin:3rem auto;padding:0 1rem}</style>
-<h1>The Forge (${reqHost})</h1>
-<ul>
-  <li><a href="${tunnelUrl}">VS Code Web (tunnel: ${manifest.network.tailscaleHostname})</a></li>
-  <li><a href="http://${reqHost}:3773">T3 Code Orchestrator (:3773)</a></li>
-  <li><a href="http://${reqHost}:8188">ComfyUI (:8188)</a></li>
-</ul>
-<h2>Project Previews (${manifest.git.integrationBranch})</h2>
-<ul>${items || "<li>No previewable web projects detected yet.</li>"}</ul>`);
-  });
+  const here = dirname(fileURLToPath(import.meta.url));
+  const candidateA = resolve(here, "..", "..", "web", "dist");
+  const candidateB = resolve(here, "..", "..", "..", "web", "dist");
+  const webDistDir = existsSync(candidateA) ? candidateA : candidateB;
+  const stateDir = "/var/lib/the-forge";
+
+  const services = {
+    listTargets: () => targets,
+    controlTarget: async (name: string, action: "start" | "stop" | "restart") => {
+      const t = targets.find((x) => x.name === name);
+      if (!t) return { ok: false, detail: `Unknown preview target: ${name}` };
+      if (action === "stop") {
+        t.manualStop = true;
+        killTargetGroup(t);
+        return { ok: true, detail: `Stopped ${name}` };
+      }
+      if (action === "restart") {
+        t.manualStop = true;
+        killTargetGroup(t);
+        superviseTarget(t, manifest);
+        return { ok: true, detail: `Restarted ${name}` };
+      }
+      if (t.state !== "running") superviseTarget(t, manifest);
+      return { ok: true, detail: `Started ${name}` };
+    },
+    syncWorktrees: () => syncPreviewWorktrees(projectsRoot, manifest.git.integrationBranch),
+  };
+
+  const apiCtx = { manifest, projectsRoot, stateDir, webDistDir, services };
+  const hub = new ForgeStateHub(apiCtx);
+
+  void hub.refreshFast();
+  hub.refreshDiagnostics();
+  setInterval(() => { void hub.refreshFast(); }, 15_000);
+
+  const handler = createForgeRequestHandler(apiCtx, hub);
+
+  const server = createServer((req, res) => { void handler(req, res); });
   server.listen(port, "0.0.0.0");
   return server;
 }

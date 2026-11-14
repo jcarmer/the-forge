@@ -1,0 +1,1 @@
+{"root":["./src/App.tsx","./src/main.tsx","./src/types.ts","./src/hooks/useForgeState.ts","./src/views/DiagnosticsView.tsx","./src/views/PackagesReposView.tsx","./src/views/ServicesView.tsx","./src/views/TasksView.tsx","./src/views/UsageRouterView.tsx"],"version":"5.9.3"}
