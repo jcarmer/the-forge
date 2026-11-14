@@ -39,6 +39,9 @@ export interface RepoStatus {
   dirty: boolean;
   ahead: number;
   behind: number;
+  noUpstream: boolean;
+  localOnlyCommits: number;
+  stashes: number;
   unpushed: boolean;
 }
 

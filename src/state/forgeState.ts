@@ -27,6 +27,12 @@ export const RepoStatusSchema = z.object({
   dirty: z.boolean(),
   ahead: z.number(),
   behind: z.number(),
+  /** Current branch has no upstream although a remote exists (never published). */
+  noUpstream: z.boolean().default(false),
+  /** Commits on any local branch that exist on no remote (includes `ahead` when there is no upstream). */
+  localOnlyCommits: z.number().default(0),
+  stashes: z.number().default(0),
+  /** True when anything committed locally has not reached a remote. */
   unpushed: z.boolean(),
 });
 export type RepoStatus = z.infer<typeof RepoStatusSchema>;
