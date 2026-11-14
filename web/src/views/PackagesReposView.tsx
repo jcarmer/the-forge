@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { UI } from "@tbe/ui";
+import { Badge, Button } from "reend-components";
+import { Heading, Pane, Text, TextDialog } from "../components";
 import type { PackageStatus, RepoStatus } from "../types";
 import { postAction } from "../hooks/useForgeState";
 
@@ -75,91 +77,84 @@ export function PackagesReposView({
   return (
     <UI.VStack spacing={UI.Size.px(12)} align="stretch">
       <UI.HStack spacing={UI.Size.px(8)} align="center">
-        <UI.Button label={busy === "sync" ? "Syncing..." : "Sync Worktrees"} disabled={busy !== null} onClick={() => void syncAll()} />
-        {notice && <UI.Label>{notice}</UI.Label>}
+        <Button variant="primary" size="sm" loading={busy === "sync"} disabled={busy !== null} onClick={() => void syncAll()}>
+          {busy === "sync" ? "Syncing..." : "Sync Worktrees"}
+        </Button>
+        {notice && <Badge variant="info">{notice}</Badge>}
       </UI.HStack>
 
-      <UI.Panel padding={UI.Size.px(12)}>
+      <Pane padding={12}>
         <UI.VStack spacing={UI.Size.px(10)} align="stretch">
-          <UI.Label>Shared Packages (@tbe/*) — Version-Guarded Live Linking</UI.Label>
-          {packages.length === 0 && <UI.Label>No @tbe/* packages found under /projects.</UI.Label>}
+          <Heading>Shared Packages (@tbe/*) — Version-Guarded Live Linking</Heading>
+          {packages.length === 0 && <Text muted>No @tbe/* packages found under /projects.</Text>}
           {packages.map((p) => (
-            <UI.Panel key={p.name} padding={UI.Size.px(10)}>
+            <Pane key={p.name} padding={10}>
               <UI.VStack spacing={UI.Size.px(8)} align="stretch">
                 <UI.HStack spacing={UI.Size.px(8)} align="center">
-                  <UI.Label>{p.name} v{p.version}</UI.Label>
+                  <Text>
+                    {p.name} v{p.version}
+                  </Text>
                   {(p.dirty || p.unpushed) && (
-                    <UI.Label>[WARN: {p.dirty ? "dirty uncommitted edits" : "unpushed commits"}]</UI.Label>
+                    <Badge variant="warning">{p.dirty ? "dirty uncommitted edits" : "unpushed commits"}</Badge>
                   )}
                   <UI.Spacer />
                   {p.hasApiDts && (
-                    <UI.Button preset="ghost" label="View API.d.ts" onClick={() => void viewApiDts(p.name)} />
+                    <Button variant="ghost" size="sm" onClick={() => void viewApiDts(p.name)}>
+                      View API.d.ts
+                    </Button>
                   )}
-                  <UI.Button
-                    preset="ghost"
-                    label={busy === `build:${p.name}` ? "Building..." : "Build + Emit .d.ts"}
-                    disabled={busy !== null}
-                    onClick={() => void rebuildPkg(p.name)}
-                  />
+                  <Button variant="ghost" size="sm" disabled={busy !== null} onClick={() => void rebuildPkg(p.name)}>
+                    {busy === `build:${p.name}` ? "Building..." : "Build + Emit .d.ts"}
+                  </Button>
                 </UI.HStack>
 
                 {p.consumers.map((c) => (
                   <UI.HStack key={c.repo} spacing={UI.Size.px(8)} align="center">
-                    <UI.Label>{c.repo}</UI.Label>
-                    <UI.Label>(pinned: {c.pinnedVersion})</UI.Label>
-                    {c.updateAvailable && <UI.Label>[Update available -&gt; {p.version}]</UI.Label>}
+                    <Text>{c.repo}</Text>
+                    <Text muted>(pinned: {c.pinnedVersion})</Text>
+                    {c.updateAvailable && <Badge variant="primary">Update available -&gt; {p.version}</Badge>}
                     <UI.Spacer />
-                    <UI.Button
-                      preset="ghost"
-                      label={c.linked ? "Unlink Local" : "Link Local"}
+                    <Button
+                      variant="ghost"
+                      size="sm"
                       disabled={busy !== null}
                       onClick={() => void toggleLink(p.name, c.repo, !c.linked)}
-                    />
+                    >
+                      {c.linked ? "Unlink Local" : "Link Local"}
+                    </Button>
                   </UI.HStack>
                 ))}
               </UI.VStack>
-            </UI.Panel>
+            </Pane>
           ))}
         </UI.VStack>
-      </UI.Panel>
+      </Pane>
 
-      <UI.Panel padding={UI.Size.px(12)}>
+      <Pane padding={12}>
         <UI.VStack spacing={UI.Size.px(6)} align="stretch">
-          <UI.Label>Repositories in /projects</UI.Label>
+          <Heading>Repositories in /projects</Heading>
           {repos.map((r) => (
-            <UI.HStack key={r.name} spacing={UI.Size.px(10)}>
-              <UI.Label>{r.name}</UI.Label>
-              <UI.Label>({r.branch})</UI.Label>
+            <UI.HStack key={r.name} spacing={UI.Size.px(10)} align="center">
+              <Text>{r.name}</Text>
+              <Text muted>({r.branch})</Text>
               <UI.Spacer />
-              <UI.Label>
-                {r.dirty ? "dirty" : "clean"}
-                {r.ahead > 0 ? ` · +${r.ahead} unpushed` : ""}
-                {r.behind > 0 ? ` · -${r.behind} behind` : ""}
-              </UI.Label>
-              <UI.Button
-                preset="ghost"
-                label={busy === `push:${r.name}` ? "Pushing..." : "Push"}
-                disabled={busy !== null}
-                onClick={() => void pushRepoBranch(r.name)}
-              />
+              <Badge variant={r.dirty ? "warning" : "success"}>{r.dirty ? "dirty" : "clean"}</Badge>
+              {r.ahead > 0 && <Badge variant="info">+{r.ahead} unpushed</Badge>}
+              {r.behind > 0 && <Badge variant="warning">-{r.behind} behind</Badge>}
+              <Button variant="ghost" size="sm" disabled={busy !== null} onClick={() => void pushRepoBranch(r.name)}>
+                {busy === `push:${r.name}` ? "Pushing..." : "Push"}
+              </Button>
             </UI.HStack>
           ))}
         </UI.VStack>
-      </UI.Panel>
+      </Pane>
 
-      <UI.Modal
+      <TextDialog
         open={apiModal !== null}
         title={apiModal ? `${apiModal.name} — API.d.ts` : ""}
+        content={apiModal?.content ?? ""}
         onClose={() => setApiModal(null)}
-        width={UI.Size.px(820)}
-        height={UI.Size.px(560)}
-      >
-        <UI.Scroll height={UI.Size.px(460)}>
-          <UI.Padded padding={UI.Size.px(8)}>
-            <pre>{apiModal?.content ?? ""}</pre>
-          </UI.Padded>
-        </UI.Scroll>
-      </UI.Modal>
+      />
     </UI.VStack>
   );
 }

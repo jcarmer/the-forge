@@ -61,6 +61,8 @@ export const TaskRecordSchema = z.object({
   startedAt: z.string(),
   finishedAt: z.string().optional(),
   merged: z.boolean(),
+  prUrl: z.string().optional(),
+  error: z.string().optional(),
   attempts: z.array(
     z.object({
       provider: z.enum(["ollama", "antigravity", "claude"]),

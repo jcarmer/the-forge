@@ -55,7 +55,7 @@ CUDA image `nvidia/cuda:12.4.1-runtime-ubuntu22.04`, .NET 10.0, Node 20, Godot 4
 Primary model `qwen2.5-coder:7b`, extras: qwen2.5:7b. The `ollama-helper` MCP server and the rules/skills/tools/plugins from `C:/projects/local-only/meta` are live-mounted (edits apply without a rebuild).
 
 ## 8. Git model
-`main` (user-owned, managed in GitComet on Windows) → `ai-work` (integration) → `task/*` (one worktree per task). Merge only, never force-push. `main` is merged into `ai-work` automatically; conflicts become an agent task. Finished tasks pass a gate (build, typecheck, tests, standards review) before merging.
+`main` (user-owned, managed in GitComet on Windows) → `ai-work` (integration) → `task/*` (one worktree per task). Merge only, never force-push. `main` is merged into `ai-work` automatically; conflicts become an agent task. Finished tasks pass a gate (build, typecheck, tests, standards review), then land per `git.taskMergeMode` (currently `pr`): `pr` pushes the task branch and opens a pull request into `ai-work`; `pr-merge` also squash-merges it; `direct` merges locally. Run `promote <repo>` to open a PR from `ai-work` into `main`.
 
 ## 9. Provider routing (preference order, adjusted by live usage)
 0. ollama

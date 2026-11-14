@@ -2,7 +2,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { extname, join, normalize, resolve } from "node:path";
 import type { Manifest } from "../schema.js";
-import { doctor } from "../ops.js";
+import { createT3Pairing, doctor } from "../ops.js";
 import { buildProvisionSteps, checkAuthStatus, runProvision } from "../provision/steps.js";
 import { collectUsage } from "../usage/collector.js";
 import { pickProvider, type TaskComplexity } from "../usage/router.js";
@@ -187,6 +187,8 @@ export class ForgeStateHub {
         status: outcome.ok ? "passed" : "failed",
         finishedAt: new Date().toISOString(),
         merged: outcome.merged,
+        prUrl: outcome.prUrl,
+        error: outcome.error,
         attempts: outcome.attempts,
       };
       this.commit({ tasks: upsertTaskRecord(done, storeFile) });
@@ -245,6 +247,11 @@ export function createForgeRequestHandler(ctx: ForgeApiContext, hub: ForgeStateH
         const result = await ctx.services.controlTarget(body.name, body.action);
         await hub.refreshFast();
         return sendJson(res, result.ok ? 200 : 400, result);
+      }
+
+      if (req.method === "POST" && pathname === "/api/actions/t3-pair") {
+        const result = createT3Pairing(ctx.manifest);
+        return sendJson(res, result.ok ? 200 : 500, result.ok ? result.pairing : { detail: result.detail });
       }
 
       if (req.method === "POST" && pathname === "/api/actions/doctor") {

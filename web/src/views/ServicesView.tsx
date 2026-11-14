@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { UI } from "@tbe/ui";
+import { Badge, Button } from "reend-components";
+import { Heading, Pane, Text, TextDialog } from "../components";
 import type { ServiceStatus } from "../types";
 import { postAction } from "../hooks/useForgeState";
 
@@ -7,6 +9,23 @@ export function ServicesView({ services, hostname }: { services: ServiceStatus[]
   const [logModal, setLogModal] = useState<{ name: string; content: string } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+
+  const [pair, setPair] = useState<{ credential: string; expiresAt: string } | null>(null);
+  const [pairError, setPairError] = useState<string | null>(null);
+  const [pairBusy, setPairBusy] = useState(false);
+
+  async function requestPair() {
+    setPairBusy(true);
+    setPairError(null);
+    try {
+      setPair(await postAction<{ credential: string; expiresAt: string }>("/api/actions/t3-pair"));
+    } catch (e) {
+      setPair(null);
+      setPairError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setPairBusy(false);
+    }
+  }
 
   const host = typeof window !== "undefined" ? window.location.hostname : hostname;
 
@@ -35,70 +54,91 @@ export function ServicesView({ services, hostname }: { services: ServiceStatus[]
 
   return (
     <UI.VStack spacing={UI.Size.px(12)} align="stretch">
-      <UI.Panel padding={UI.Size.px(12)}>
+      <Pane padding={12}>
         <UI.HStack spacing={UI.Size.px(16)} align="center">
-          <UI.Label>VS Code Web Tunnel:</UI.Label>
+          <Heading>VS Code Web Tunnel</Heading>
           <a href={`https://vscode.dev/tunnel/${hostname}/projects`} target="_blank" rel="noreferrer">
             vscode.dev/tunnel/{hostname}/projects
           </a>
-          {notice && <UI.Label>{notice}</UI.Label>}
+          {notice && <Badge variant="info">{notice}</Badge>}
         </UI.HStack>
-      </UI.Panel>
+      </Pane>
+
+      <Pane padding={12}>
+        <UI.VStack spacing={UI.Size.px(8)} align="stretch">
+          <UI.HStack spacing={UI.Size.px(16)} align="center">
+            <Heading>T3 Pairing</Heading>
+            <Button variant="ghost" size="sm" disabled={pairBusy} onClick={() => void requestPair()}>
+              {pairBusy ? "..." : pair ? "New pair code" : "Get pair code"}
+            </Button>
+            {pairError && <Badge variant="danger">{pairError}</Badge>}
+          </UI.HStack>
+          {pair && (
+            <>
+              <a href={`http://${host}:3773/pair#token=${pair.credential}`} target="_blank" rel="noreferrer">
+                Open T3 and pair this browser
+              </a>
+              <Text muted>
+                Or enter the code: <code style={{ userSelect: "all" }}>{pair.credential}</code> (single use, expires{" "}
+                {new Date(pair.expiresAt).toLocaleTimeString()})
+              </Text>
+            </>
+          )}
+        </UI.VStack>
+      </Pane>
 
       <UI.Wrap horizontalSpacing={UI.Size.px(12)} verticalSpacing={UI.Size.px(12)}>
         {services.map((s) => (
-          <UI.Panel key={s.id} width={UI.Size.px(320)} padding={UI.Size.px(14)}>
+          <Pane key={s.id} width={320} padding={14}>
             <UI.VStack spacing={UI.Size.px(8)} align="stretch">
               <UI.HStack spacing={UI.Size.px(8)} align="center">
-                <UI.Label>{s.name}</UI.Label>
+                <Heading>{s.name}</Heading>
                 <UI.Spacer />
-                <UI.Label>{s.kind === "preview" ? s.state : `:${s.port}`}</UI.Label>
+                {s.kind === "preview" ? (
+                  <Badge variant={s.state === "running" ? "success" : "default"}>{s.state}</Badge>
+                ) : (
+                  <Text muted>:{s.port}</Text>
+                )}
               </UI.HStack>
 
               <UI.HStack spacing={UI.Size.px(8)} align="center">
                 <a href={`http://${host}:${s.port}`} target="_blank" rel="noreferrer">
                   http://{host}:{s.port}
                 </a>
-                {s.branch && <UI.Label>({s.branch})</UI.Label>}
+                {s.branch && <Text muted>({s.branch})</Text>}
               </UI.HStack>
 
               <UI.HStack spacing={UI.Size.px(6)}>
-                <UI.Button preset="ghost" label="Logs" onClick={() => void openLogs(s.id)} />
+                <Button variant="ghost" size="sm" onClick={() => void openLogs(s.id)}>
+                  Logs
+                </Button>
                 {s.kind === "preview" && (
                   <>
-                    <UI.Button
-                      preset="ghost"
-                      label={busy === `${s.name}:restart` ? "..." : "Restart"}
-                      disabled={busy !== null}
-                      onClick={() => void handleControl(s.name, "restart")}
-                    />
-                    <UI.Button
-                      preset="ghost"
-                      label={s.state === "running" ? "Stop" : "Start"}
+                    <Button variant="ghost" size="sm" disabled={busy !== null} onClick={() => void handleControl(s.name, "restart")}>
+                      {busy === `${s.name}:restart` ? "..." : "Restart"}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
                       disabled={busy !== null}
                       onClick={() => void handleControl(s.name, s.state === "running" ? "stop" : "start")}
-                    />
+                    >
+                      {s.state === "running" ? "Stop" : "Start"}
+                    </Button>
                   </>
                 )}
               </UI.HStack>
             </UI.VStack>
-          </UI.Panel>
+          </Pane>
         ))}
       </UI.Wrap>
 
-      <UI.Modal
+      <TextDialog
         open={logModal !== null}
         title={logModal ? `Logs: ${logModal.name}` : ""}
+        content={logModal?.content ?? ""}
         onClose={() => setLogModal(null)}
-        width={UI.Size.px(760)}
-        height={UI.Size.px(520)}
-      >
-        <UI.Scroll height={UI.Size.px(420)}>
-          <UI.Padded padding={UI.Size.px(8)}>
-            <pre>{logModal?.content ?? ""}</pre>
-          </UI.Padded>
-        </UI.Scroll>
-      </UI.Modal>
+      />
     </UI.VStack>
   );
 }

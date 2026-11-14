@@ -53,6 +53,13 @@ RUN curl -fsSL https://ollama.com/install.sh | sh
 # Antigravity CLI
 RUN curl -fsSL https://antigravity.google/cli/install.sh | bash || true
 
+# GitHub CLI (reads GH_TOKEN from the environment; used for pull requests)
+RUN mkdir -p -m 755 /etc/apt/keyrings \\
+    && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /etc/apt/keyrings/githubcli-archive-keyring.gpg \\
+    && chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg \\
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list \\
+    && apt-get update && apt-get install -y gh && rm -rf /var/lib/apt/lists/*
+
 # Claude Code (+ root-safe wrapper)
 RUN npm install -g @anthropic-ai/claude-code && \\
     printf '#!/bin/bash\\nexport IS_SANDBOX=1\\nexec /usr/lib/node_modules/@anthropic-ai/claude-code/bin/claude.exe "$@"\\n' > /usr/local/bin/claude && \\
@@ -74,7 +81,8 @@ RUN curl -LsSf https://astral.sh/uv/install.sh | sh && /root/.local/bin/uv pytho
 RUN git config --global --add safe.directory "*" && \\
     git config --global worktree.useRelativePaths true && \\
     git config --global user.name "AI Sandbox Agent" && \\
-    git config --global user.email "agent@sandbox.local"
+    git config --global user.email "agent@sandbox.local" && \\
+    git config --global credential.https://github.com.helper '!f() { [ "$1" = get ] && [ -n "$GH_TOKEN" ] && echo username=x-access-token && echo password=$GH_TOKEN; }; f'
 
 WORKDIR /projects
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh

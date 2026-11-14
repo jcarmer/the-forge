@@ -20,6 +20,11 @@ You are managing **The Forge**, a Docker-based AI development sandbox on the use
 ## Mutating Commands (explain first)
 - `npx tsx src/cli.ts up` — regenerate files, run preflight checks, build and start containers
 - `npx tsx src/cli.ts down` — stop containers (volumes are preserved)
+- `npx tsx src/cli.ts promote <repo>` — open a pull request from `ai-work` into `main` (you review and merge it on GitHub)
 - `npx tsx src/cli.ts clone` — clone any missing manifest repos into `/projects`
 - `npx tsx src/cli.ts sync <repo>` — merge `origin/main` into `ai-work` (no force-push; conflicts become an agent task)
+- `npx tsx src/cli.ts t3-pair [ttl]` — mint a one-time T3 pairing link/code (default 10m, single use); also a button on the web UI Services tab
 - `npx tsx src/cli.ts tunnel-login` — interactive GitHub device login for VS Code `code tunnel`
+
+## Pull requests
+Gated agent tasks land via `git.taskMergeMode` in `sandbox.config.ts`: `pr` (default) pushes `task/<id>` and opens a PR into `ai-work`; `pr-merge` also squash-merges it; `direct` is the old local merge. PR URLs show on each task in the Tasks view. If `doctor` flags the GitHub CLI, the `GH_TOKEN` needs **Pull requests: read/write**.
