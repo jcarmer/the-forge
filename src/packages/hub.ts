@@ -56,11 +56,15 @@ export async function scanRepos(projectsRoot: string): Promise<RepoStatus[]> {
     const dir = join(projectsRoot, e.name);
     if (!existsSync(join(dir, ".git"))) continue;
 
-    const [branchRes, statusRes, revRes] = await Promise.all([
+    const [branchRes, statusRes, revRes, remotesRes, localOnlyRes, stashRes] = await Promise.all([
       runQuiet("git", ["-C", dir, "rev-parse", "--abbrev-ref", "HEAD"]),
       runQuiet("git", ["-C", dir, "status", "--porcelain"]),
       runQuiet("git", ["-C", dir, "rev-list", "--left-right", "--count", "@{u}...HEAD"]),
+      runQuiet("git", ["-C", dir, "remote"]),
+      runQuiet("git", ["-C", dir, "rev-list", "--count", "--branches", "--not", "--remotes"]),
+      runQuiet("git", ["-C", dir, "stash", "list"]),
     ]);
+    const hasRemote = remotesRes.code === 0 && remotesRes.out.trim().length > 0;
 
     const branch = branchRes.code === 0 ? branchRes.out.trim() : "unknown";
     const dirty = statusRes.code === 0 && statusRes.out.trim().length > 0;
@@ -70,13 +74,28 @@ export async function scanRepos(projectsRoot: string): Promise<RepoStatus[]> {
       const parts = revRes.out.trim().split(/\s+/);
       behind = Number(parts[0] ?? 0) || 0;
       ahead = Number(parts[1] ?? 0) || 0;
-    } else {
-      // No upstream tracking branch: treat any local commits as unpushed if remote exists
-      const hasRemote = await runQuiet("git", ["-C", dir, "remote"]);
-      if (hasRemote.code === 0 && hasRemote.out.trim().length === 0) ahead = 0;
     }
+    // Without an upstream, `@{u}` fails: count commits that exist on no remote instead of reporting zero.
+    const noUpstream = revRes.code !== 0 && hasRemote && branch !== "HEAD" && branch !== "unknown";
+    const localOnlyCommits = localOnlyRes.code === 0 && hasRemote ? Number(localOnlyRes.out.trim()) || 0 : 0;
+    if (noUpstream) {
+      const own = await runQuiet("git", ["-C", dir, "rev-list", "--count", "HEAD", "--not", "--remotes"]);
+      ahead = Number(own.out.trim()) || 0;
+    }
+    const stashes = stashRes.code === 0 ? stashRes.out.split("\n").filter(Boolean).length : 0;
 
-    results.push({ name: e.name, path: dir, branch, dirty, ahead, behind, unpushed: ahead > 0 });
+    results.push({
+      name: e.name,
+      path: dir,
+      branch,
+      dirty,
+      ahead,
+      behind,
+      noUpstream,
+      localOnlyCommits,
+      stashes,
+      unpushed: ahead > 0 || noUpstream || localOnlyCommits > 0,
+    });
   }
   return results;
 }

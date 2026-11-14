@@ -138,8 +138,14 @@ export function PackagesReposView({
               <Text>{r.name}</Text>
               <Text muted>({r.branch})</Text>
               <UI.Spacer />
-              <Badge variant={r.dirty ? "warning" : "success"}>{r.dirty ? "dirty" : "clean"}</Badge>
-              {r.ahead > 0 && <Badge variant="info">+{r.ahead} unpushed</Badge>}
+              <Badge variant={r.dirty || r.unpushed || r.stashes > 0 ? "warning" : "success"}>
+                {r.dirty || r.unpushed || r.stashes > 0 ? "pending" : "clean"}
+              </Badge>
+              {r.dirty && <Badge variant="warning">uncommitted changes</Badge>}
+              {r.noUpstream && <Badge variant="info">{`branch not on remote${r.ahead > 0 ? ` (+${r.ahead} commits)` : ""}`}</Badge>}
+              {r.ahead > 0 && !r.noUpstream && <Badge variant="info">+{r.ahead} unpushed</Badge>}
+              {r.localOnlyCommits > r.ahead && <Badge variant="info">{r.localOnlyCommits - r.ahead} unpushed on other branches</Badge>}
+              {r.stashes > 0 && <Badge variant="info">{r.stashes} stash{r.stashes > 1 ? "es" : ""}</Badge>}
               {r.behind > 0 && <Badge variant="warning">-{r.behind} behind</Badge>}
               <Button variant="ghost" size="sm" disabled={busy !== null} onClick={() => void pushRepoBranch(r.name)}>
                 {busy === `push:${r.name}` ? "Pushing..." : "Push"}
