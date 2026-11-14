@@ -18,7 +18,7 @@ export default defineManifest({
   },
 
   previews: [
-    { name: "tbe", port: 5200, command: "pnpm dev -- --host 0.0.0.0 --port 5200" },
+    { name: "tbe", port: 5174, command: "pnpm dev" },
     { name: "script-model", port: 5201, command: "pnpm dev:host -- --port 5201" },
   ],
 

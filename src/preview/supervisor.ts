@@ -78,18 +78,18 @@ export function startPreviewLandingServer(manifest: Manifest, projectsRoot = "/p
   const targets = discoverPreviews(projectsRoot, manifest);
   for (const t of targets) superviseTarget(t);
 
-  const server = createServer((_req, res) => {
-    const host = manifest.network.tailscaleHostname;
+  const server = createServer((req, res) => {
+    const reqHost = (req.headers.host ?? manifest.network.tailscaleHostname).replace(/:\d+$/, "");
     const items = targets
-      .map((p) => `<li><a href="http://${host}:${p.port}">${p.name}</a> (<code>${p.branch}</code> on :${p.port} — ${p.state ?? "starting"})</li>`)
+      .map((p) => `<li><a href="http://${reqHost}:${p.port}">${p.name}</a> (<code>${p.branch}</code> on :${p.port} — ${p.state ?? "starting"})</li>`)
       .join("");
     res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
     res.end(`<!doctype html><title>The Forge — Previews</title>
 <style>body{font:16px/1.5 system-ui;max-width:680px;margin:3rem auto;padding:0 1rem}</style>
-<h1>The Forge (${host})</h1>
+<h1>The Forge (${reqHost})</h1>
 <ul>
-  <li><a href="http://${host}:3773">T3 Code Orchestrator (:3773)</a></li>
-  <li><a href="http://${host}:8188">ComfyUI (:8188)</a></li>
+  <li><a href="http://${reqHost}:3773">T3 Code Orchestrator (:3773)</a></li>
+  <li><a href="http://${reqHost}:8188">ComfyUI (:8188)</a></li>
 </ul>
 <h2>Project Previews (${manifest.git.integrationBranch})</h2>
 <ul>${items || "<li>No previewable web projects detected yet.</li>"}</ul>`);
