@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -72,10 +73,9 @@ switch (cmd) {
     break;
   }
   case "tunnel-login": {
-    console.log("Follow the device-login prompt below, then run `sandboxctl up` to start the tunnel.");
-    const r = run("docker", ["exec", "-it", manifest.containerName, "code", "tunnel", "user", "login", "--provider", "github"]);
-    process.stdout.write(r.out);
-    process.exitCode = r.code;
+    console.log("Follow the device-login prompt below, then run `npx tsx src/cli.ts up` to start the tunnel.");
+    const r = spawnSync("docker", ["exec", "-it", manifest.containerName, "code", "tunnel", "user", "login", "--provider", "github"], { stdio: "inherit" });
+    process.exitCode = r.status ?? 1;
     break;
   }
   case "healthcheck": {
