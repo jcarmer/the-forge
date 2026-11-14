@@ -67,7 +67,8 @@ if [ ! -x /root/.local/bin/t3 ] && [ ! -x /usr/local/bin/t3 ]; then
   fi
 fi
 log "Starting T3 on port ${t3?.port ?? 3773}..."
-nohup t3 serve --host 0.0.0.0 > /var/log/t3.log 2>&1 &
+# Unset ANTHROPIC_API_KEY so T3 uses the claude.ai subscription login in /root/.claude
+nohup env -u ANTHROPIC_API_KEY t3 serve --host 0.0.0.0 > /var/log/t3.log 2>&1 &
 
 # 8. ComfyUI (bootstraps on first run)
 start_comfyui() {
