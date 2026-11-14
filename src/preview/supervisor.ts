@@ -55,13 +55,19 @@ export function syncPreviewWorktrees(projectsRoot: string, integrationBranch: st
   return updated;
 }
 
-function superviseTarget(t: PreviewTarget) {
+function superviseTarget(t: PreviewTarget, manifest?: Manifest) {
   t.state = "starting";
   const log = createWriteStream(`/var/log/preview-${t.name}.log`, { flags: "a" });
   const boot = `[ ! -d node_modules ] && pnpm install; exec ${t.command}`;
   const child = spawn("bash", ["-lc", boot], {
     cwd: t.dir,
-    env: { ...process.env, PORT: String(t.port), HOST: "0.0.0.0", CHOKIDAR_USEPOLLING: "1" },
+    env: {
+      ...process.env,
+      PORT: String(t.port),
+      HOST: "0.0.0.0",
+      CHOKIDAR_USEPOLLING: "1",
+      __VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS: manifest?.network.tailscaleHostname ?? "ai-sandbox",
+    },
   });
   t.state = "running";
   child.stdout?.pipe(log, { end: false });
@@ -69,14 +75,14 @@ function superviseTarget(t: PreviewTarget) {
   child.on("exit", (code) => {
     t.state = "stopped";
     log.write(`[preview] ${t.name} exited (${code}); restarting in 5s\n`);
-    setTimeout(() => superviseTarget(t), 5000);
+    setTimeout(() => superviseTarget(t, manifest), 5000);
   });
 }
 
 /** Spawns supervised dev servers for all preview targets and serves the landing page on port 5173. */
 export function startPreviewLandingServer(manifest: Manifest, projectsRoot = "/projects", port = 5173) {
   const targets = discoverPreviews(projectsRoot, manifest);
-  for (const t of targets) superviseTarget(t);
+  for (const t of targets) superviseTarget(t, manifest);
 
   const server = createServer((req, res) => {
     const reqHost = (req.headers.host ?? manifest.network.tailscaleHostname).replace(/:\d+$/, "");
