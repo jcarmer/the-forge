@@ -90,8 +90,9 @@ fi
 nohup caddy run --config /etc/caddy/Caddyfile > /var/log/caddy.log 2>&1 &
 
 # 10. VS Code tunnel + default pnpm setting (first run needs a one-time login: the-forge tunnel-login)
-mkdir -p /root/.vscode-server/data/Machine
+mkdir -p /root/.vscode-server/data/Machine /projects/.vscode
 [ -f /root/.vscode-server/data/Machine/settings.json ] || echo '{"npm.packageManager":"pnpm"}' > /root/.vscode-server/data/Machine/settings.json
+[ -f /projects/.vscode/settings.json ] || echo '{"npm.packageManager":"pnpm"}' > /projects/.vscode/settings.json
 if [ -d /root/.vscode/cli ] && [ -n "$(ls -A /root/.vscode/cli 2>/dev/null)" ]; then
   log "Starting VS Code tunnel..."
   nohup code tunnel --accept-server-license-terms --name ai-sandbox > /var/log/vscode-tunnel.log 2>&1 &
