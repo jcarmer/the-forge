@@ -38,6 +38,14 @@ if [ -d /projects/buddy ]; then
   nohup bash -c 'cd /projects/buddy; [ -d node_modules ] || npm install; while true; do echo "[$(date +%T)] [Buddy] launching tsx watch" >> /var/log/buddy.log; CHOKIDAR_USEPOLLING=1 npx tsx watch src/index.ts >> /var/log/buddy.log 2>&1; echo "[$(date +%T)] [Buddy] exited ($?); restarting in 3s" >> /var/log/buddy.log; sleep 3; done' > /dev/null 2>&1 &
 fi
 
+# 6b. Keep Claude Code current: the image layer is cached, and T3 rejects a too-old CLI ("version X or newer is required")
+CLAUDE_CUR=$(claude --version 2>/dev/null | awk '{print $1}')
+CLAUDE_LATEST=$(timeout 20 npm view @anthropic-ai/claude-code version 2>/dev/null || true)
+if [ -n "$CLAUDE_LATEST" ] && [ "$CLAUDE_CUR" != "$CLAUDE_LATEST" ]; then
+  log "Updating Claude Code $CLAUDE_CUR -> $CLAUDE_LATEST..."
+  timeout 180 npm install -g "@anthropic-ai/claude-code@$CLAUDE_LATEST" > /var/log/claude-update.log 2>&1 || log "Claude Code update failed (see /var/log/claude-update.log)"
+fi
+
 # 7. T3 (ensure binary exists inside /root/.t3 volume)
 if [ ! -x /root/.local/bin/t3 ] && [ ! -x /usr/local/bin/t3 ]; then
   T3_EXISTING=$(ls -1 /root/.t3/runtime/versions/*/t3 2>/dev/null | tail -n 1)
