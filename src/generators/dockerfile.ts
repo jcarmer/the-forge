@@ -26,9 +26,10 @@ RUN curl -fsSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh \\
     && bash /tmp/dotnet-install.sh --channel ${t.dotnetChannel} --install-dir \${DOTNET_ROOT} \\
     && rm /tmp/dotnet-install.sh && ln -sf \${DOTNET_ROOT}/dotnet /usr/bin/dotnet
 
-# Node.js
+# Node.js + pnpm (via corepack)
 RUN curl -fsSL https://deb.nodesource.com/setup_${t.nodeMajor}.x | bash - \\
-    && apt-get install -y nodejs && rm -rf /var/lib/apt/lists/*
+    && apt-get install -y nodejs && rm -rf /var/lib/apt/lists/* \\
+    && corepack enable
 
 # Godot .NET (headless only; used by TBE)
 ENV GODOT_VERSION=${t.godotVersion}

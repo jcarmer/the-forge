@@ -24,6 +24,17 @@ export const ManifestSchema = z.object({
     ignoredLegacyDirs: z.array(z.string()).default([]),
   }),
 
+  /** Web previews managed by `the-forge preview` (always-on `ai-work` dev servers). */
+  previews: z
+    .array(
+      z.object({
+        name: z.string(),
+        port: z.number().int().positive(),
+        command: z.string(),
+      }),
+    )
+    .default([]),
+
   /** Repos cloned into the repos volume by `clone`. URLs must NOT contain credentials. */
   repos: z
     .array(

@@ -27,20 +27,20 @@ describe("project gate config & preview discovery", () => {
 
   it("falls back to package.json scripts when .agents/project.yml is absent", () => {
     const d = tempDir();
-    writeFileSync(join(d, "package.json"), JSON.stringify({ scripts: { build: "tsc", test: "vitest", dev: "vite" } }));
+    writeFileSync(join(d, "package.json"), JSON.stringify({ scripts: { build: "tsc", test: "vitest", "dev:host": "vite --host" } }));
     const cfg = loadProjectConfig(d);
     expect(cfg.build).toBe("npm run build");
     expect(cfg.test).toBe("npm test");
-    expect(cfg.preview).toContain("--host 0.0.0.0");
+    expect(cfg.preview).toBe("pnpm run dev:host");
   });
 
   it("discovers previewable projects and allocates sequential ports", () => {
     const root = tempDir();
     mkdirSync(join(root, "alpha"));
     mkdirSync(join(root, "beta"));
-    writeFileSync(join(root, "alpha", "package.json"), JSON.stringify({ scripts: { dev: "vite" } }));
+    writeFileSync(join(root, "alpha", "package.json"), JSON.stringify({ scripts: { "dev:host": "vite --host" } }));
     writeFileSync(join(root, "beta", "package.json"), JSON.stringify({ scripts: { test: "vitest" } }));
-    const previews = discoverPreviews(root, 5200);
+    const previews = discoverPreviews(root, undefined, 5200);
     expect(previews).toHaveLength(1);
     expect(previews[0]).toMatchObject({ name: "alpha", branch: "ai-work", port: 5200 });
   });

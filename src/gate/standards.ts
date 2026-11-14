@@ -29,7 +29,7 @@ export function loadProjectConfig(repoDir: string): ProjectGateConfig {
       if (s.typecheck) cfg.typecheck = "npm run typecheck";
       if (s.build) cfg.build = "npm run build";
       if (s.test) cfg.test = "npm test";
-      if (s.dev) cfg.preview = "npm run dev -- --host 0.0.0.0";
+      if (s["dev:host"]) cfg.preview = "pnpm run dev:host";
     } catch {
       // ignore invalid package.json
     }
