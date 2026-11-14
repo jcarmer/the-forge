@@ -147,6 +147,17 @@ export function startPreviewLandingServer(manifest: Manifest, projectsRoot = "/p
   const targets = discoverPreviews(projectsRoot, manifest);
   for (const t of targets) superviseTarget(t, manifest);
 
+  // Kill supervised dev-server process groups on shutdown so a `tsx watch` reload doesn't orphan them.
+  const shutdown = () => {
+    for (const t of targets) {
+      t.manualStop = true;
+      killTargetGroup(t);
+    }
+    process.exit(0);
+  };
+  process.once("SIGTERM", shutdown);
+  process.once("SIGINT", shutdown);
+
   const here = dirname(fileURLToPath(import.meta.url));
   const candidateA = resolve(here, "..", "..", "web", "dist");
   const candidateB = resolve(here, "..", "..", "..", "web", "dist");

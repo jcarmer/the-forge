@@ -185,6 +185,23 @@ export async function togglePackageLink(
   }
 }
 
+/** Pushes the repo's current branch to `origin` (sets upstream on first push). Never forces. */
+export async function pushRepo(projectsRoot: string, repoName: string): Promise<{ ok: boolean; detail: string }> {
+  const repos = await scanRepos(projectsRoot);
+  const repo = repos.find((r) => r.name === repoName);
+  if (!repo) return { ok: false, detail: `Repo ${repoName} not found` };
+  if (repo.branch === "HEAD" || repo.branch === "unknown") {
+    return { ok: false, detail: `${repoName} is not on a branch (detached HEAD); check out a branch first` };
+  }
+  const hasUpstream = (await runQuiet("git", ["-C", repo.path, "rev-parse", "--abbrev-ref", "@{u}"])).code === 0;
+  const args = hasUpstream ? ["push"] : ["push", "-u", "origin", repo.branch];
+  const r = await runQuiet("git", ["-C", repo.path, ...args], undefined, 60_000);
+  const tail = r.out.trim().slice(-500);
+  return r.code === 0
+    ? { ok: true, detail: `Pushed ${repoName} (${repo.branch})${tail ? `: ${tail}` : ""}` }
+    : { ok: false, detail: `Push failed for ${repoName}: ${tail}` };
+}
+
 export async function buildPackage(projectsRoot: string, pkgName: string): Promise<{ ok: boolean; detail: string }> {
   const repos = await scanRepos(projectsRoot);
   const pkgs = scanPackages(projectsRoot, repos);

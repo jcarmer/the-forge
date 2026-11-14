@@ -40,6 +40,19 @@ export function PackagesReposView({
     }
   }
 
+  async function pushRepoBranch(repo: string) {
+    setBusy(`push:${repo}`);
+    setNotice(null);
+    try {
+      const res = await postAction<{ detail: string }>("/api/actions/repo-push", { repo });
+      setNotice(res.detail);
+    } catch (e) {
+      setNotice(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function syncAll() {
     setBusy("sync");
     setNotice(null);
@@ -123,6 +136,12 @@ export function PackagesReposView({
                 {r.ahead > 0 ? ` · +${r.ahead} unpushed` : ""}
                 {r.behind > 0 ? ` · -${r.behind} behind` : ""}
               </UI.Label>
+              <UI.Button
+                preset="ghost"
+                label={busy === `push:${r.name}` ? "Pushing..." : "Push"}
+                disabled={busy !== null}
+                onClick={() => void pushRepoBranch(r.name)}
+              />
             </UI.HStack>
           ))}
         </UI.VStack>

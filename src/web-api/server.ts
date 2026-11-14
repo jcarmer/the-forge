@@ -9,7 +9,7 @@ import { pickProvider, type TaskComplexity } from "../usage/router.js";
 import { type ProviderName, UsageSnapshotSchema } from "../usage/schema.js";
 import { executeTask } from "../worker/runner.js";
 import { loadTaskRecords, taskStorePath, upsertTaskRecord } from "../worker/taskStore.js";
-import { buildPackage, readPackageApiDts, scanPackages, scanRepos, togglePackageLink } from "../packages/hub.js";
+import { buildPackage, pushRepo, readPackageApiDts, scanPackages, scanRepos, togglePackageLink } from "../packages/hub.js";
 import type { ForgeState, ServiceStatus, TaskRecord } from "../state/forgeState.js";
 
 export interface ServiceController {
@@ -278,6 +278,14 @@ export function createForgeRequestHandler(ctx: ForgeApiContext, hub: ForgeStateH
       if (req.method === "POST" && pathname === "/api/actions/package-build") {
         const body = await readJsonBody<{ pkg: string }>(req);
         const result = await buildPackage(ctx.projectsRoot, body.pkg);
+        await hub.refreshFast();
+        return sendJson(res, result.ok ? 200 : 400, result);
+      }
+
+      if (req.method === "POST" && pathname === "/api/actions/repo-push") {
+        const body = await readJsonBody<{ repo: string }>(req);
+        if (!body.repo) return sendJson(res, 400, { error: "repo is required" });
+        const result = await pushRepo(ctx.projectsRoot, body.repo);
         await hub.refreshFast();
         return sendJson(res, result.ok ? 200 : 400, result);
       }
