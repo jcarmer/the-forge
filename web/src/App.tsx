@@ -1,7 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { darkTheme, ThemeProvider, UI } from "@tbe/ui";
-import { Badge, Button, Tabs, TabsContent, TabsList, TabsTrigger } from "reend-components";
-import { Heading, Pane, Text } from "./components";
+import { Badge, Button, Heading, Pane, Tabs, TabsContent, TabsList, TabsTrigger, Text } from "./components";
 import { useForgeState } from "./hooks/useForgeState";
 import { ServicesView } from "./views/ServicesView";
 import { DiagnosticsView } from "./views/DiagnosticsView";

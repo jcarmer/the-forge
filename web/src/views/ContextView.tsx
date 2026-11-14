@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { UI } from "@tbe/ui";
-import { Badge, Button } from "reend-components";
-import { Choice, Heading, Pane, Text } from "../components";
+import { Badge, Button, Choice, Heading, Pane, Text } from "../components";
 
 interface ContextItem {
   kind: "guidance" | "rule" | "skill" | "mcp" | "setting";

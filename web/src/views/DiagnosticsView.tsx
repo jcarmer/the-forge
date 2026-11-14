@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { UI } from "@tbe/ui";
-import { Button } from "reend-components";
-import { Heading, Pane, StatusBadge, Text } from "../components";
+import { Button, Heading, Pane, StatusBadge, Text } from "../components";
 import type { CheckResult } from "../types";
 import { postAction } from "../hooks/useForgeState";
 

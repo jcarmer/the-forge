@@ -1,7 +1,6 @@
 import { Fragment, useCallback, useEffect, useState } from "react";
 import { UI } from "@tbe/ui";
-import { Badge, Button } from "reend-components";
-import { Heading, Pane, Text } from "../components";
+import { Badge, Button, Heading, Pane, Text } from "../components";
 import { postAction } from "../hooks/useForgeState";
 
 interface Totals {

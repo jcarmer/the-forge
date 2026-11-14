@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { UI } from "@tbe/ui";
-import { Badge, Button, Input } from "reend-components";
-import { Choice, Heading, Pane, Text } from "../components";
+import { Badge, Button, Choice, Heading, Input, Pane, Text } from "../components";
 import type { RepoStatus, TaskComplexity, TaskRecord } from "../types";
 import { postAction } from "../hooks/useForgeState";
 
