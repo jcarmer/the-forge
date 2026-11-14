@@ -95,10 +95,12 @@ if [ -f /opt/the-forge/dist/src/cli.js ]; then
 fi
 nohup caddy run --config /etc/caddy/Caddyfile > /var/log/caddy.log 2>&1 &
 
-# 10. VS Code tunnel + default pnpm setting (first run needs a one-time login: the-forge tunnel-login)
+# 10. VS Code tunnel + default pnpm & TBE extension settings (first run needs a one-time login: the-forge tunnel-login)
 mkdir -p /root/.vscode-server/data/Machine /projects/.vscode
-[ -f /root/.vscode-server/data/Machine/settings.json ] || echo '{"npm.packageManager":"pnpm"}' > /root/.vscode-server/data/Machine/settings.json
-[ -f /projects/.vscode/settings.json ] || echo '{"npm.packageManager":"pnpm"}' > /projects/.vscode/settings.json
+VSCODE_SETTINGS='{"npm.packageManager":"pnpm","remote.extensionKind":{"local.tbe-vscode":["workspace"]}}'
+[ -f /root/.vscode-server/data/Machine/settings.json ] || echo "$VSCODE_SETTINGS" > /root/.vscode-server/data/Machine/settings.json
+[ -f /projects/.vscode/settings.json ] || echo "$VSCODE_SETTINGS" > /projects/.vscode/settings.json
+[ -f /projects/.vscode/extensions.json ] || echo '{"recommendations":["local.tbe-vscode"]}' > /projects/.vscode/extensions.json
 if [ -d /root/.vscode/cli ] && [ -n "$(ls -A /root/.vscode/cli 2>/dev/null)" ]; then
   log "Starting VS Code tunnel..."
   nohup code tunnel --accept-server-license-terms --name ${m.network.tailscaleHostname} > /var/log/vscode-tunnel.log 2>&1 &
