@@ -40,7 +40,6 @@ export default defineManifest({
     claude_config: { mount: "/root/.claude", description: "Claude Code credentials" },
     t3_config: { mount: "/root/.t3", description: "T3 Code configuration" },
     comfyui_data: { mount: "/root/comfyui", description: "ComfyUI install, venv, nodes, models" },
-    gemini_data: { mount: "/root/.gemini", description: "Antigravity state, brain and auth" },
     vscode_cli: { mount: "/root/.vscode-cli", description: "VS Code tunnel login and server" },
   },
 
@@ -62,6 +61,6 @@ export default defineManifest({
   providers: [
     { name: "ollama", priority: 0 },
     { name: "antigravity", priority: 1, usageCommand: 'agy -p "/usage"' },
-    { name: "claude", priority: 2, usageCommand: 'claude -p "/usage"' },
+    { name: "claude", priority: 2, usageCommand: 'env -u ANTHROPIC_API_KEY claude -p "/usage"' },
   ],
 });

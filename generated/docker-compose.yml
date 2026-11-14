@@ -48,13 +48,14 @@ services:
       - ai_sandbox_claude_config:/root/.claude
       - ai_sandbox_t3_config:/root/.t3
       - ai_sandbox_comfyui_data:/root/comfyui
-      - ai_sandbox_gemini_data:/root/.gemini
       - ai_sandbox_vscode_cli:/root/.vscode-cli
       - C:/projects/local-only/buddy.env:/root/.buddy/.env:ro
+      - C:/projects/local-only/meta/antigravity-data:/root/.gemini
       - C:/projects/local-only/meta/rules:/root/.gemini/config/rules
       - C:/projects/local-only/meta/skills:/root/.gemini/config/skills
       - C:/projects/local-only/meta/tools:/root/.gemini/config/tools
       - C:/projects/local-only/meta/plugins:/root/.gemini/config/plugins
+      - ..:/opt/the-forge:ro
       - ./entrypoint.sh:/usr/local/bin/entrypoint.sh
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
     environment:
@@ -87,8 +88,6 @@ volumes:
     name: ai_sandbox_t3_config
   ai_sandbox_comfyui_data:
     name: ai_sandbox_comfyui_data
-  ai_sandbox_gemini_data:
-    name: ai_sandbox_gemini_data
   ai_sandbox_vscode_cli:
     name: ai_sandbox_vscode_cli
   ai_sandbox_tailscale_state:

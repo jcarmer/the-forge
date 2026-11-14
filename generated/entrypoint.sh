@@ -50,7 +50,16 @@ if [ -d /projects/buddy ]; then
   nohup bash -c 'cd /projects/buddy; [ -d node_modules ] || npm install; while true; do echo "[$(date +%T)] [Buddy] launching tsx watch" >> /var/log/buddy.log; CHOKIDAR_USEPOLLING=1 npx tsx watch src/index.ts >> /var/log/buddy.log 2>&1; echo "[$(date +%T)] [Buddy] exited ($?); restarting in 3s" >> /var/log/buddy.log; sleep 3; done' > /dev/null 2>&1 &
 fi
 
-# 7. T3
+# 7. T3 (ensure binary exists inside /root/.t3 volume)
+if [ ! -x /root/.local/bin/t3 ] && [ ! -x /usr/local/bin/t3 ]; then
+  T3_EXISTING=$(ls -1 /root/.t3/runtime/versions/*/t3 2>/dev/null | tail -n 1)
+  if [ -n "$T3_EXISTING" ]; then
+    ln -sf "$T3_EXISTING" /usr/local/bin/t3
+  else
+    log "Installing T3 runtime into volume..."
+    curl -fsSL https://t3.codes/install.sh | bash || true
+  fi
+fi
 log "Starting T3 on port 3773..."
 nohup t3 serve --host 0.0.0.0 > /var/log/t3.log 2>&1 &
 
@@ -73,7 +82,10 @@ start_comfyui() {
 }
 ( start_comfyui ) > /var/log/comfyui.log 2>&1 &
 
-# 9. Caddy preview proxy
+# 9. Preview landing server + Caddy proxy
+if [ -f /opt/the-forge/dist/src/cli.js ]; then
+  nohup node /opt/the-forge/dist/src/cli.js preview /projects > /var/log/preview.log 2>&1 &
+fi
 nohup caddy run --config /etc/caddy/Caddyfile > /var/log/caddy.log 2>&1 &
 
 # 10. VS Code tunnel (first run needs a one-time login: sandboxctl tunnel-login)

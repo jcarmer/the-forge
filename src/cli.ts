@@ -7,6 +7,9 @@ import { preflight, doctor, drift, run, migrateCheck, cloneRepos, type Check } f
 import { collectUsage } from "./usage/collector.js";
 import { pickProvider, type TaskComplexity } from "./usage/router.js";
 import { UsageSnapshotSchema, type ProviderName } from "./usage/schema.js";
+import { syncMainToIntegration, createTaskWorktree, mergeTaskWorktree } from "./git/worktree.js";
+import { startPreviewLandingServer, syncPreviewWorktrees } from "./preview/supervisor.js";
+import { checkCoderModelUpdates } from "./healthcheck/models.js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const dir = resolve(root, "generated");
@@ -90,7 +93,48 @@ switch (cmd) {
         if (!ok) d.push({ kind: "live", message: `/usage failed for ${prov}` });
       }
     }
+
+    // Model upgrade check (10 GB VRAM)
+    const rec = await checkCoderModelUpdates(manifest);
+    for (const c of rec.candidates) console.log(`[model] ${c.tag}: ${c.note}`);
     process.exitCode = d.length ? 1 : 0;
+    break;
+  }
+  case "sync": {
+    const repo = rest[0];
+    if (!repo) {
+      console.error("Usage: the-forge sync <repoDir>");
+      process.exitCode = 1;
+      break;
+    }
+    const r = syncMainToIntegration(repo, manifest.git.mainBranch, manifest.git.integrationBranch);
+    console.log(r.ok ? `OK: ${r.detail}` : `FAIL${r.conflict ? " (CONFLICT — spawn resolution task)" : ""}: ${r.detail}`);
+    process.exitCode = r.ok ? 0 : 1;
+    break;
+  }
+  case "worktree": {
+    const [action, repo, taskId] = rest;
+    if (!action || !repo || !taskId) {
+      console.error("Usage: the-forge worktree <create|merge> <repoDir> <taskId>");
+      process.exitCode = 1;
+      break;
+    }
+    if (action === "create") {
+      const r = createTaskWorktree(repo, taskId, manifest.git.integrationBranch, manifest.git.taskBranchPrefix);
+      console.log(r.ok ? `OK: ${r.worktreePath} (${r.branch})` : `FAIL: ${r.detail}`);
+      process.exitCode = r.ok ? 0 : 1;
+    } else if (action === "merge") {
+      const r = mergeTaskWorktree(repo, taskId, manifest.git.integrationBranch, manifest.git.taskBranchPrefix);
+      console.log(r.ok ? `OK: ${r.detail}` : `FAIL: ${r.detail}`);
+      process.exitCode = r.ok ? 0 : 1;
+    }
+    break;
+  }
+  case "preview": {
+    const projectsRoot = rest[0] ?? "/projects";
+    startPreviewLandingServer(manifest, projectsRoot, 5173);
+    setInterval(() => syncPreviewWorktrees(projectsRoot, manifest.git.integrationBranch), 30_000);
+    console.log("Preview landing server listening on :5173");
     break;
   }
   case "usage": {

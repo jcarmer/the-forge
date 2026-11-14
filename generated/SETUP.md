@@ -37,7 +37,6 @@ npx tsx src/cli.ts doctor
 | claude_config | /root/.claude | Claude Code credentials |
 | t3_config | /root/.t3 | T3 Code configuration |
 | comfyui_data | /root/comfyui | ComfyUI install, venv, nodes, models |
-| gemini_data | /root/.gemini | Antigravity state, brain and auth |
 | vscode_cli | /root/.vscode-cli | VS Code tunnel login and server |
 
 Repos live on a Linux volume (`/projects`), not a Windows mount. GitHub is the sync point.
@@ -54,7 +53,7 @@ Primary model `qwen2.5-coder:7b`, extras: qwen2.5:7b. The `ollama-helper` MCP se
 ## 9. Provider routing (preference order, adjusted by live usage)
 0. ollama
 1. antigravity (usage: `agy -p "/usage"`)
-2. claude (usage: `claude -p "/usage"`)
+2. claude (usage: `env -u ANTHROPIC_API_KEY claude -p "/usage"`)
 
 Usage limits come in three scopes: `5h`, `weekly`, `model_weekly`. Prefer Ollama; for cloud providers spend quota that resets soonest.
 
@@ -78,7 +77,7 @@ Usage limits come in three scopes: `5h`, `weekly`, `model_weekly`. Prefer Ollama
 <!-- SANDBOX-FACTS:START (machine-owned; do not edit) -->
 ```json
 {
-  "hash": "e8fd2ea76870320d",
+  "hash": "edaa1610d7ff699e",
   "services": [
     {
       "name": "comfyui",
@@ -100,7 +99,6 @@ Usage limits come in three scopes: `5h`, `weekly`, `model_weekly`. Prefer Ollama
   "volumes": [
     "claude_config",
     "comfyui_data",
-    "gemini_data",
     "nuget_cache",
     "ollama_models",
     "repos",
