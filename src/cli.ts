@@ -14,6 +14,9 @@ import { openPullRequest } from "./git/pullRequest.js";
 import { startPreviewLandingServer, syncPreviewWorktrees, syncTbeVscodeExtension } from "./preview/supervisor.js";
 import { checkCoderModelUpdates } from "./healthcheck/models.js";
 import { buildProvisionSteps, checkAuthStatus, runProvision } from "./provision/steps.js";
+import { listProjects, scanContext } from "./context/inventory.js";
+import { getSession, listSessions, windowTotals } from "./sessions/parse.js";
+import { annotateWithOllama, deterministicFlags } from "./sessions/analyze.js";
 import { executeTask } from "./worker/runner.js";
 import { taskStorePath, upsertTaskRecord } from "./worker/taskStore.js";
 
@@ -141,6 +144,50 @@ switch (cmd) {
     });
     console.log(pr.ok ? `OK: ${pr.detail}: ${pr.url}` : `FAIL: ${pr.detail}`);
     process.exitCode = pr.ok ? 0 : 1;
+    break;
+  }
+  case "context": {
+    const targets = rest[0] ? [rest[0]] : listProjects("/projects", [root]);
+    for (const dir of targets) {
+      const r = scanContext(dir);
+      console.log(`\n== ${r.project}`);
+      for (const kind of ["guidance", "rule", "skill", "mcp", "setting"] as const) {
+        const items = r.items.filter((i) => i.kind === kind);
+        if (!items.length) continue;
+        console.log(`  ${kind} (${items.length}, ~${items.reduce((n, i) => n + i.approxTokens, 0)} tokens)`);
+        for (const i of items) console.log(`    [${i.provider}/${i.scope}] ${i.name}${i.detail ? ` - ${i.detail.slice(0, 90)}` : ""}`);
+      }
+      for (const w of r.warnings) console.log(`  ! ${w}`);
+    }
+    break;
+  }
+  case "sessions": {
+    const id = rest.find((a) => !a.startsWith("--"));
+    const week = windowTotals();
+    if (!id) {
+      for (const s of listSessions()) {
+        const mcp = s.mcp.map((m) => `${m.server}:${m.calls}`).join(",") || "-";
+        console.log(`${s.id.slice(0, 8)}  ${s.source.padEnd(17)} ${s.startedAt.slice(0, 16)}  steps=${String(s.stepCount).padStart(3)}  fresh=${String(s.totals.fresh).padStart(8)}  total=${String(s.totals.total).padStart(10)}  mcp=${mcp}  ${s.project ?? ""}`);
+      }
+      console.log(`\nLast 7 days: ${week.fresh} fresh / ${week.total} total tokens across ${week.sessions} sessions`);
+      break;
+    }
+    const d = getSession(id);
+    if (!d) {
+      console.error(`No session matching ${id}`);
+      process.exitCode = 1;
+      break;
+    }
+    const flags = deterministicFlags(d);
+    console.log(`${d.id} (${d.source}) ${d.project ?? ""}\nmodels: ${d.models.join(", ")}  steps: ${d.stepCount}  fresh: ${d.totals.fresh}  total: ${d.totals.total}  (${((d.totals.fresh / Math.max(week.fresh, 1)) * 100).toFixed(1)}% of last-7-day fresh tokens)`);
+    if (d.allowedMcp?.length) console.log(`MCP pre-approved by T3: ${d.allowedMcp.join(", ")}`);
+    for (const m of d.mcp) console.log(`MCP ${m.server}: ${m.calls} calls (${Object.entries(m.tools).map(([k, v]) => `${k}x${v}`).join(", ")}), ~${m.attributedFresh} fresh tokens`);
+    for (const f of flags) console.log(`  step ${f.index} [${f.kind}] ${f.message}`);
+    if (rest.includes("--ollama")) {
+      const a = await annotateWithOllama(d, { model: manifest.ollama.primaryModel });
+      console.log(a.ok ? `\nOllama (${a.model}):` : `\nOllama failed: ${a.detail}`);
+      for (const n of a.notes) console.log(`  step ${d.steps.findIndex((s) => s.id === n.stepId) + 1}: ${n.note}`);
+    }
     break;
   }
   case "worktree": {
@@ -287,5 +334,5 @@ switch (cmd) {
     break;
   }
   default:
-    console.log("the-forge <generate|init|build|up|down|rebuild|provision|auth-status|status|doctor|logs [svc]|tunnel-login|healthcheck|migrate-check|clone|usage|route|dispatch|sync|promote|worktree|preview>");
+    console.log("the-forge <generate|init|build|up|down|rebuild|provision|auth-status|status|doctor|logs [svc]|tunnel-login|healthcheck|migrate-check|clone|usage|route|dispatch|sync|promote|context|sessions|worktree|preview>");
 }

@@ -8,8 +8,10 @@ import { DiagnosticsView } from "./views/DiagnosticsView";
 import { UsageRouterView } from "./views/UsageRouterView";
 import { PackagesReposView } from "./views/PackagesReposView";
 import { TasksView } from "./views/TasksView";
+import { ContextView } from "./views/ContextView";
+import { SessionsView } from "./views/SessionsView";
 
-type TabKey = "services" | "diagnostics" | "usage" | "packages" | "tasks";
+type TabKey = "services" | "diagnostics" | "usage" | "packages" | "tasks" | "context" | "sessions";
 
 export function App() {
   const { state, connected, error, reload } = useForgeState();
@@ -46,6 +48,8 @@ export function App() {
           title: runningTasks > 0 ? `Worktrees & Tasks (${runningTasks} active)` : "Worktrees & Tasks",
           content: <TasksView tasks={state.tasks} repos={state.repos} />,
         },
+        { key: "context", title: "AI Context", content: <ContextView /> },
+        { key: "sessions", title: "Sessions", content: <SessionsView /> },
       ]
     : [];
 

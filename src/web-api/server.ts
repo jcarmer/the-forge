@@ -7,6 +7,9 @@ import { buildProvisionSteps, checkAuthStatus, runProvision } from "../provision
 import { collectUsage } from "../usage/collector.js";
 import { pickProvider, type TaskComplexity } from "../usage/router.js";
 import { type ProviderName, UsageSnapshotSchema } from "../usage/schema.js";
+import { listProjects, scanContext } from "../context/inventory.js";
+import { getSession, listSessions, windowTotals } from "../sessions/parse.js";
+import { annotateWithOllama, deterministicFlags } from "../sessions/analyze.js";
 import { executeTask } from "../worker/runner.js";
 import { loadTaskRecords, taskStorePath, upsertTaskRecord } from "../worker/taskStore.js";
 import { buildPackage, pushRepo, readPackageApiDts, scanPackages, scanRepos, togglePackageLink } from "../packages/hub.js";
@@ -198,6 +201,16 @@ export class ForgeStateHub {
   }
 }
 
+const SESSION_COVERAGE = [
+  { source: "T3 provider logs / Claude transcripts", tokens: true, mcp: true, note: "exact per-step usage and tool calls" },
+  { source: "Antigravity CLI", tokens: false, mcp: false, note: "logs are HTTP/config debug output; conversations are binary protobuf, so no per-step data is available" },
+  { source: "OpenCode (Ollama)", tokens: false, mcp: false, note: "no session logs are written" },
+];
+
+function contextProjects(ctx: ForgeApiContext): string[] {
+  return listProjects(ctx.projectsRoot, [existsSync("/opt/the-forge") ? "/opt/the-forge" : process.cwd()]);
+}
+
 export function createForgeRequestHandler(ctx: ForgeApiContext, hub: ForgeStateHub) {
   return async (req: IncomingMessage, res: ServerResponse) => {
     const url = new URL(req.url ?? "/", "http://localhost");
@@ -233,6 +246,41 @@ export function createForgeRequestHandler(ctx: ForgeApiContext, hub: ForgeStateH
         const known = hub.getState().services.find((s) => s.id === name || s.name === name);
         const logPath = known?.logFile ?? `/var/log/preview-${name}.log`;
         return sendJson(res, 200, { name, logPath, content: tailLog(logPath, lines) });
+      }
+
+      if (req.method === "GET" && pathname === "/api/context/projects") {
+        return sendJson(res, 200, { projects: contextProjects(ctx) });
+      }
+
+      if (req.method === "GET" && pathname === "/api/context") {
+        const project = url.searchParams.get("project") ?? "";
+        // Only directories we list ourselves: never an arbitrary caller-supplied path.
+        if (!contextProjects(ctx).includes(project)) return sendJson(res, 404, { error: `unknown project: ${project}` });
+        return sendJson(res, 200, scanContext(project));
+      }
+
+      if (req.method === "GET" && pathname === "/api/sessions") {
+        const claudeWeekly = hub.getState().usage?.entries.find((e) => e.provider === "claude" && e.scope === "weekly");
+        return sendJson(res, 200, {
+          sessions: listSessions(),
+          week: windowTotals(),
+          claudeWeeklyRemainingPct: claudeWeekly?.remainingPct ?? null,
+          coverage: SESSION_COVERAGE,
+        });
+      }
+
+      if (req.method === "GET" && pathname.startsWith("/api/sessions/")) {
+        const id = pathname.slice("/api/sessions/".length).replace(/[^a-zA-Z0-9._-]/g, "");
+        const detail = getSession(id);
+        if (!detail) return sendJson(res, 404, { error: `session not found: ${id}` });
+        return sendJson(res, 200, { session: detail, flags: deterministicFlags(detail), week: windowTotals() });
+      }
+
+      if (req.method === "POST" && pathname === "/api/actions/session-analyze") {
+        const body = await readJsonBody<{ id: string }>(req);
+        const detail = getSession(body.id ?? "");
+        if (!detail) return sendJson(res, 404, { error: "session not found" });
+        return sendJson(res, 200, await annotateWithOllama(detail, { model: ctx.manifest.ollama.primaryModel }));
       }
 
       if (req.method === "GET" && pathname === "/api/packages/api") {

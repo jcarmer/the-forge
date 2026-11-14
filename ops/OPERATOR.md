@@ -13,6 +13,8 @@ You are managing **The Forge**, a Docker-based AI development sandbox on the use
 - `npx tsx src/cli.ts doctor` — check Tailscale, GPU, Ollama models, services, and `GH_TOKEN`
 - `npx tsx src/cli.ts logs <service>` — inspect last 100 lines (`buddy`, `t3`, `comfyui`, `ollama`, `caddy`, `vscode-tunnel`)
 - `npx tsx src/cli.ts usage` — collect and show live `/usage` quotas for Antigravity and Claude
+- `npx tsx src/cli.ts context [dir]` — list the guidance, rules, skills, MCP servers and settings in effect for a project (secrets are never shown); also the web UI's AI Context tab
+- `npx tsx src/cli.ts sessions [id] [--ollama]` — token use and MCP calls per T3/Claude conversation, with costly-step findings; `--ollama` adds one-line explanations (only counts and tool names are sent)
 - `npx tsx src/cli.ts route <trivial|normal|hard>` — preview which provider the router would pick
 - `npx tsx src/cli.ts healthcheck` — check config/docs drift, `/usage` parsers, and newer `qwen-coder` models
 - `npx tsx src/cli.ts migrate-check` — check legacy `C:\projects\sandbox` for uncommitted/unpushed work
