@@ -134,11 +134,19 @@ switch (cmd) {
   case "preview": {
     const projectsRoot = rest[0] ?? "/projects";
     startPreviewLandingServer(manifest, projectsRoot, 5173);
-    syncTbeVscodeExtension(projectsRoot);
-    setInterval(() => {
-      syncPreviewWorktrees(projectsRoot, manifest.git.integrationBranch);
-      syncTbeVscodeExtension(projectsRoot);
-    }, 30_000);
+    let syncing = false;
+    const tick = async () => {
+      if (syncing) return;
+      syncing = true;
+      try {
+        await syncPreviewWorktrees(projectsRoot, manifest.git.integrationBranch);
+        await syncTbeVscodeExtension(projectsRoot);
+      } finally {
+        syncing = false;
+      }
+    };
+    void tick();
+    setInterval(() => void tick(), 30_000);
     console.log("Preview landing server listening on :5173");
     break;
   }

@@ -1,10 +1,21 @@
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { createWriteStream, existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { join } from "node:path";
+import { promisify } from "node:util";
 import type { Manifest } from "../schema.js";
-import { run } from "../ops.js";
 import { loadProjectConfig } from "../gate/standards.js";
+
+const execFileAsync = promisify(execFile);
+async function runAsync(cmd: string, args: string[], timeout = 30_000) {
+  try {
+    const { stdout, stderr } = await execFileAsync(cmd, args, { timeout, encoding: "utf8" });
+    return { code: 0, out: stdout + stderr };
+  } catch (e: unknown) {
+    const err = e as { code?: number; stdout?: string; stderr?: string };
+    return { code: err.code ?? 1, out: (err.stdout ?? "") + (err.stderr ?? "") };
+  }
+}
 
 export interface PreviewTarget {
   name: string;
@@ -41,27 +52,27 @@ export function discoverPreviews(projectsRoot: string, manifest?: Manifest, base
   return targets;
 }
 
-/** Fast-forwards each preview worktree to `origin/<integrationBranch>`. */
-export function syncPreviewWorktrees(projectsRoot: string, integrationBranch: string): string[] {
+/** Fast-forwards each preview worktree to `origin/<integrationBranch>` without blocking the event loop. */
+export async function syncPreviewWorktrees(projectsRoot: string, integrationBranch: string): Promise<string[]> {
   const updated: string[] = [];
   if (!existsSync(projectsRoot)) return updated;
   for (const e of readdirSync(projectsRoot, { withFileTypes: true })) {
     if (!e.isDirectory() || e.name.startsWith(".")) continue;
     const dir = join(projectsRoot, e.name);
     if (!existsSync(join(dir, ".git"))) continue;
-    const r = run("git", ["-C", dir, "pull", "--ff-only", "origin", integrationBranch]);
+    const r = await runAsync("git", ["-C", dir, "pull", "--ff-only", "origin", integrationBranch], 15_000);
     if (r.code === 0 && !r.out.includes("Already up to date")) updated.push(e.name);
   }
   return updated;
 }
 
 /** Rebuilds and reinstalls TBE's VS Code extension into the tunnel server whenever its source changes. */
-export function syncTbeVscodeExtension(projectsRoot: string): boolean {
+export async function syncTbeVscodeExtension(projectsRoot: string): Promise<boolean> {
   const tbeDir = join(projectsRoot, "tbe");
   const extDir = join(tbeDir, "tools", "vscode");
   if (!existsSync(extDir)) return false;
 
-  const rev = run("git", ["-C", tbeDir, "rev-parse", "HEAD:tools/vscode", "HEAD:tools/modeling/viewer"]).out.trim();
+  const rev = (await runAsync("git", ["-C", tbeDir, "rev-parse", "HEAD:tools/vscode", "HEAD:tools/modeling/viewer"])).out.trim();
   const stamp = "/tmp/tbe-vscode.rev";
   if (rev && existsSync(stamp) && readFileSync(stamp, "utf8").trim() === rev) return false;
 
@@ -70,7 +81,7 @@ export function syncTbeVscodeExtension(projectsRoot: string): boolean {
     "cd /projects/tbe/tools/vscode && pnpm build && pnpm package",
     "for srv in /root/.vscode/cli/servers/*/server/bin/code-server; do [ -x \"$srv\" ] && \"$srv\" --install-extension /projects/tbe/tools/vscode/tbe-vscode.vsix --force; done",
   ].join(" && ");
-  const r = run("bash", ["-lc", cmd]);
+  const r = await runAsync("bash", ["-lc", cmd], 120_000);
   if (r.code === 0 && rev) {
     writeFileSync(stamp, rev, "utf8");
     return true;
