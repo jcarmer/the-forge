@@ -3,6 +3,9 @@ import { dirname } from "node:path";
 import type { Manifest } from "../schema.js";
 import { run } from "../ops.js";
 
+const GH_CRED_HELPER =
+  '!f() { [ "$1" = get ] && [ -n "$GH_TOKEN" ] && echo username=x-access-token && echo password=$GH_TOKEN; }; f';
+
 export interface ProvisionStep {
   name: string;
   check: () => boolean;
@@ -43,8 +46,15 @@ export function buildProvisionSteps(manifest: Manifest): ProvisionStep[] {
       apply: () => {
         run("git", ["config", "--global", "--add", "safe.directory", "*"]);
         run("git", ["config", "--global", "worktree.useRelativePaths", "true"]);
-        const tok = process.env.GH_TOKEN;
-        if (tok) run("git", ["config", "--global", `url.https://x-access-token:${tok}@github.com/.insteadOf`, "https://github.com/"]);
+      },
+    },
+    {
+      // Credential helper reads $GH_TOKEN at call time: no secret is written to disk and rotation just works.
+      name: "git-github-auth",
+      check: () => run("git", ["config", "--global", "--get", "credential.https://github.com.helper"]).out.trim() === GH_CRED_HELPER,
+      apply: () => {
+        run("bash", ["-c", `git config --global --name-only --get-regexp '^url\\..*x-access-token' | while read -r k; do git config --global --unset-all "$k"; done`]);
+        run("git", ["config", "--global", "--replace-all", "credential.https://github.com.helper", GH_CRED_HELPER]);
       },
     },
     {

@@ -90,6 +90,13 @@ export function doctor(m: Manifest): Check[] {
   }
   const gh = exec('[ -n "$GH_TOKEN" ]');
   checks.push({ name: "GH_TOKEN in container", ok: gh.code === 0, detail: gh.code === 0 ? "set" : "empty", fix: "Add GH_TOKEN to .env and run: sandboxctl up" });
+  const ghCli = exec("gh auth status");
+  checks.push({
+    name: "GitHub CLI (gh) authenticated",
+    ok: ghCli.code === 0,
+    detail: ghCli.code === 0 ? "authenticated" : (ghCli.out.trim().split("\n")[0] || "gh missing or token rejected"),
+    fix: "Needs gh in the image (sandboxctl rebuild) and a valid GH_TOKEN with Pull requests: write.",
+  });
   return checks;
 }
 
@@ -162,4 +169,30 @@ export function drift(m: Manifest, dir: string): Drift[] {
     }
   }
   return out;
+}
+
+export type T3Pairing = { id: string; credential: string; expiresAt: string; ttl: string };
+
+/**
+ * Ask the running T3 server for a one-time pairing credential.
+ * Runs `t3` directly when inside the container, otherwise via `docker exec`.
+ */
+export function createT3Pairing(m: Manifest, ttl = "10m"): { ok: true; pairing: T3Pairing } | { ok: false; detail: string } {
+  const args = ["auth", "pairing", "create", "--ttl", ttl, "--label", "forge", "--json"];
+  const local = run("t3", ["--version"]);
+  const r = local.missing ? run("docker", ["exec", m.containerName, "t3", ...args]) : run("t3", args);
+  if (r.code !== 0) return { ok: false, detail: r.out.trim() || "t3 failed to run (is the T3 service up?)" };
+  try {
+    const parsed = JSON.parse(r.out.slice(r.out.indexOf("{"))) as { id: string; credential: string; expiresAt?: string };
+    const expiresAt = parsed.expiresAt ?? new Date(Date.now() + 10 * 60_000).toISOString();
+    return { ok: true, pairing: { id: parsed.id, credential: parsed.credential, expiresAt, ttl } };
+  } catch {
+    return { ok: false, detail: "Could not read the pairing output from t3." };
+  }
+}
+
+/** Link that opens T3 and pairs the browser in one click. */
+export function t3PairingUrl(m: Manifest, credential: string): string {
+  const port = m.services.find((s) => s.name === "t3")?.port ?? 3773;
+  return `http://${m.network.tailscaleHostname}:${port}/pair#token=${credential}`;
 }

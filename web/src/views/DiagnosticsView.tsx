@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { UI } from "@tbe/ui";
+import { Button } from "reend-components";
+import { Heading, Pane, StatusBadge, Text } from "../components";
 import type { CheckResult } from "../types";
 import { postAction } from "../hooks/useForgeState";
 
@@ -44,51 +46,55 @@ export function DiagnosticsView({
   return (
     <UI.VStack spacing={UI.Size.px(12)} align="stretch">
       <UI.HStack spacing={UI.Size.px(8)} align="center">
-        <UI.Button label={busy === "doctor" ? "Running..." : "Run Doctor"} disabled={busy !== null} onClick={() => void runDoctor()} />
-        <UI.Button preset="ghost" label={busy === "provision" ? "Provisioning..." : "Run Provision"} disabled={busy !== null} onClick={() => void runProvision()} />
+        <Button variant="primary" size="sm" loading={busy === "doctor"} disabled={busy !== null} onClick={() => void runDoctor()}>
+          {busy === "doctor" ? "Running..." : "Run Doctor"}
+        </Button>
+        <Button variant="ghost" size="sm" loading={busy === "provision"} disabled={busy !== null} onClick={() => void runProvision()}>
+          {busy === "provision" ? "Provisioning..." : "Run Provision"}
+        </Button>
         <UI.Spacer />
-        <UI.Label>Checked: {checkedAt ? new Date(checkedAt).toLocaleTimeString() : "never"}</UI.Label>
+        <Text muted>Checked: {checkedAt ? new Date(checkedAt).toLocaleTimeString() : "never"}</Text>
       </UI.HStack>
 
       {output && (
-        <UI.Panel padding={UI.Size.px(10)}>
+        <Pane padding={10}>
           <pre>{output}</pre>
-        </UI.Panel>
+        </Pane>
       )}
 
-      <UI.Panel padding={UI.Size.px(12)}>
+      <Pane padding={12}>
         <UI.VStack spacing={UI.Size.px(8)} align="stretch">
-          <UI.Label>Container Doctor Checks</UI.Label>
+          <Heading>Container Doctor Checks</Heading>
           {checks.map((c) => (
             <UI.VStack key={c.name} spacing={UI.Size.px(2)} align="stretch">
-              <UI.HStack spacing={UI.Size.px(10)}>
-                <UI.Label>{c.ok ? "[OK]" : "[FAIL]"}</UI.Label>
-                <UI.Label>{c.name}</UI.Label>
+              <UI.HStack spacing={UI.Size.px(10)} align="center">
+                <StatusBadge ok={c.ok}  />
+                <Text>{c.name}</Text>
                 <UI.Spacer />
-                <UI.Label>{c.detail}</UI.Label>
+                <Text muted>{c.detail}</Text>
               </UI.HStack>
-              {!c.ok && c.fix && <UI.Label>Fix: {c.fix}</UI.Label>}
+              {!c.ok && c.fix && <Text muted>Fix: {c.fix}</Text>}
             </UI.VStack>
           ))}
         </UI.VStack>
-      </UI.Panel>
+      </Pane>
 
-      <UI.Panel padding={UI.Size.px(12)}>
+      <Pane padding={12}>
         <UI.VStack spacing={UI.Size.px(8)} align="stretch">
-          <UI.Label>Auth Status (Claude / Codex / GH / Tailscale)</UI.Label>
-          {auth.map((a) => (
-            <UI.VStack key={a.name} spacing={UI.Size.px(2)} align="stretch">
-              <UI.HStack spacing={UI.Size.px(10)}>
-                <UI.Label>{a.ok ? "[OK]" : "[MISSING]"}</UI.Label>
-                <UI.Label>{a.name}</UI.Label>
+          <Heading>Auth Status (Claude / Codex / GH / Tailscale)</Heading>
+          {auth.map((c) => (
+            <UI.VStack key={c.name} spacing={UI.Size.px(2)} align="stretch">
+              <UI.HStack spacing={UI.Size.px(10)} align="center">
+                <StatusBadge ok={c.ok} okText="OK" failText="MISSING" />
+                <Text>{c.name}</Text>
                 <UI.Spacer />
-                <UI.Label>{a.detail}</UI.Label>
+                <Text muted>{c.detail}</Text>
               </UI.HStack>
-              {!a.ok && a.fix && <UI.Label>Fix: {a.fix}</UI.Label>}
+              {!c.ok && c.fix && <Text muted>Fix: {c.fix}</Text>}
             </UI.VStack>
           ))}
         </UI.VStack>
-      </UI.Panel>
+      </Pane>
     </UI.VStack>
   );
 }

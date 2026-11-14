@@ -73,7 +73,7 @@ CUDA image \`${m.toolchain.cudaImage}\`, .NET ${m.toolchain.dotnetChannel}, Node
 Primary model \`${m.ollama.primaryModel}\`${m.ollama.extraModels.length ? `, extras: ${m.ollama.extraModels.join(", ")}` : ""}. The \`ollama-helper\` MCP server and the rules/skills/tools/plugins from \`${m.paths.metaDir}\` are live-mounted (edits apply without a rebuild).
 
 ## 8. Git model
-\`${m.git.mainBranch}\` (user-owned, managed in GitComet on Windows) → \`${m.git.integrationBranch}\` (integration) → \`${m.git.taskBranchPrefix}*\` (one worktree per task). Merge only, never force-push. \`${m.git.mainBranch}\` is merged into \`${m.git.integrationBranch}\` automatically; conflicts become an agent task. Finished tasks pass a gate (build, typecheck, tests, standards review) before merging.
+\`${m.git.mainBranch}\` (user-owned, managed in GitComet on Windows) → \`${m.git.integrationBranch}\` (integration) → \`${m.git.taskBranchPrefix}*\` (one worktree per task). Merge only, never force-push. \`${m.git.mainBranch}\` is merged into \`${m.git.integrationBranch}\` automatically; conflicts become an agent task. Finished tasks pass a gate (build, typecheck, tests, standards review), then land per \`git.taskMergeMode\` (currently \`${m.git.taskMergeMode}\`): \`pr\` pushes the task branch and opens a pull request into \`${m.git.integrationBranch}\`; \`pr-merge\` also squash-merges it; \`direct\` merges locally. Run \`promote <repo>\` to open a PR from \`${m.git.integrationBranch}\` into \`${m.git.mainBranch}\`.
 
 ## 9. Provider routing (preference order, adjusted by live usage)
 ${providers}

@@ -5,11 +5,12 @@ import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import manifest from "../sandbox.config.js";
 import { writeAll } from "./generators/index.js";
-import { preflight, doctor, drift, run, migrateCheck, cloneRepos, type Check } from "./ops.js";
+import { preflight, doctor, drift, run, migrateCheck, cloneRepos, createT3Pairing, t3PairingUrl, type Check } from "./ops.js";
 import { collectUsage } from "./usage/collector.js";
 import { pickProvider, type TaskComplexity } from "./usage/router.js";
 import { UsageSnapshotSchema, type ProviderName } from "./usage/schema.js";
 import { syncMainToIntegration, createTaskWorktree, mergeTaskWorktree } from "./git/worktree.js";
+import { openPullRequest } from "./git/pullRequest.js";
 import { startPreviewLandingServer, syncPreviewWorktrees, syncTbeVscodeExtension } from "./preview/supervisor.js";
 import { checkCoderModelUpdates } from "./healthcheck/models.js";
 import { buildProvisionSteps, checkAuthStatus, runProvision } from "./provision/steps.js";
@@ -76,6 +77,14 @@ switch (cmd) {
     process.exitCode = r.code;
     break;
   }
+  case "t3-pair": {
+    const res = createT3Pairing(manifest, rest[0] ?? "10m");
+    if (!res.ok) { console.error(res.detail); process.exitCode = 1; break; }
+    console.log(`Open this link to pair a browser (expires ${res.pairing.expiresAt}, single use):`);
+    console.log(t3PairingUrl(manifest, res.pairing.credential));
+    console.log(`\nOr paste this code on the T3 pairing screen: ${res.pairing.credential}`);
+    break;
+  }
   case "tunnel-login": {
     console.log("Follow the device-login prompt below, then run `npx tsx src/cli.ts up` to start the tunnel.");
     const r = spawnSync("docker", ["exec", "-it", manifest.containerName, "code", "tunnel", "user", "login", "--provider", "github"], { stdio: "inherit" });
@@ -114,6 +123,24 @@ switch (cmd) {
     const r = syncMainToIntegration(repo, manifest.git.mainBranch, manifest.git.integrationBranch);
     console.log(r.ok ? `OK: ${r.detail}` : `FAIL${r.conflict ? " (CONFLICT — spawn resolution task)" : ""}: ${r.detail}`);
     process.exitCode = r.ok ? 0 : 1;
+    break;
+  }
+  case "promote": {
+    const repo = rest[0];
+    if (!repo) {
+      console.error("Usage: the-forge promote <repoDir>   (opens a PR from the integration branch into main for you to review)");
+      process.exitCode = 1;
+      break;
+    }
+    const { mainBranch, integrationBranch } = manifest.git;
+    const pr = openPullRequest(repo, {
+      head: integrationBranch,
+      base: mainBranch,
+      title: `Promote ${integrationBranch} to ${mainBranch}`,
+      body: `Automated promotion of \`${integrationBranch}\` into \`${mainBranch}\`. Review and merge when ready.`,
+    });
+    console.log(pr.ok ? `OK: ${pr.detail}: ${pr.url}` : `FAIL: ${pr.detail}`);
+    process.exitCode = pr.ok ? 0 : 1;
     break;
   }
   case "worktree": {
@@ -251,6 +278,8 @@ switch (cmd) {
       startedAt,
       finishedAt: new Date().toISOString(),
       merged: outcome.merged,
+      prUrl: outcome.prUrl,
+      error: outcome.error,
       attempts: outcome.attempts,
     }, storeFile);
     console.log(JSON.stringify(outcome, null, 2));
@@ -258,5 +287,5 @@ switch (cmd) {
     break;
   }
   default:
-    console.log("the-forge <generate|init|build|up|down|rebuild|provision|auth-status|status|doctor|logs [svc]|tunnel-login|healthcheck|migrate-check|clone|usage|route|dispatch|sync|worktree|preview>");
+    console.log("the-forge <generate|init|build|up|down|rebuild|provision|auth-status|status|doctor|logs [svc]|tunnel-login|healthcheck|migrate-check|clone|usage|route|dispatch|sync|promote|worktree|preview>");
 }

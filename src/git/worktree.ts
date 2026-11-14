@@ -98,3 +98,17 @@ export function mergeTaskWorktree(
   git(repoDir, "branch", "-D", branch);
   return { ok: true, conflict: false, detail: `merged ${branch} -> ${integrationBranch}` };
 }
+
+/** Pushes `task/<taskId>` to origin (plain push with upstream; never forced). */
+export function pushTaskBranch(repoDir: string, taskId: string, prefix = "task/"): SyncResult {
+  const branch = `${prefix}${taskId}`;
+  const push = git(repoDir, "push", "-u", "origin", branch);
+  return { ok: push.code === 0, conflict: false, detail: push.out.trim() || `pushed ${branch}` };
+}
+
+/** Removes a task's worktree; optionally deletes the local branch too (only once it is merged or no longer needed). */
+export function cleanupTaskWorktree(repoDir: string, taskId: string, prefix = "task/", deleteBranch = false): void {
+  const worktreePath = join(repoDir, ".worktrees", taskId);
+  if (existsSync(worktreePath)) git(repoDir, "worktree", "remove", "--force", worktreePath);
+  if (deleteBranch) git(repoDir, "branch", "-D", `${prefix}${taskId}`);
+}

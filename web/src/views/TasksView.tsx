@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { UI } from "@tbe/ui";
+import { Badge, Button, Input } from "reend-components";
+import { Choice, Heading, Pane, Text } from "../components";
 import type { RepoStatus, TaskComplexity, TaskRecord } from "../types";
 import { postAction } from "../hooks/useForgeState";
 
@@ -29,71 +31,79 @@ export function TasksView({ tasks, repos }: { tasks: TaskRecord[]; repos: RepoSt
     }
   }
 
+  const repoOptions = repos.length ? repos.map((r) => ({ key: r.path, label: r.name })) : [{ key: "/projects/tbe", label: "tbe" }];
+  const statusVariant = (s: TaskRecord["status"]) => (s === "running" ? "info" : s === "passed" ? "success" : "danger");
+
   return (
     <UI.VStack spacing={UI.Size.px(12)} align="stretch">
-      <UI.Panel padding={UI.Size.px(12)}>
+      <Pane padding={12}>
         <UI.VStack spacing={UI.Size.px(8)} align="stretch">
-          <UI.Label>Dispatch Autonomous Worktree Task (executeTask)</UI.Label>
+          <Heading>Dispatch Autonomous Worktree Task (executeTask)</Heading>
           <UI.HStack spacing={UI.Size.px(8)} align="center">
-            <UI.Dropdown
-              label="Repo"
-              selected={repoDir}
-              options={repos.length
-                ? repos.map((r) => ({ key: r.path, label: r.name }))
-                : [{ key: "/projects/tbe", label: "tbe" }]
-              }
-              onSelect={(k) => setRepoDir(k)}
-            />
-            <UI.Dropdown
+            <Choice label="Repo" value={repoDir} options={repoOptions} onChange={setRepoDir} width={220} />
+            <Choice
               label="Complexity"
-              selected={complexity}
+              value={complexity}
               options={[
                 { key: "trivial", label: "trivial" },
                 { key: "normal", label: "normal" },
                 { key: "hard", label: "hard" },
               ]}
-              onSelect={(k) => setComplexity(k)}
+              onChange={setComplexity}
+              width={140}
             />
           </UI.HStack>
           <UI.HStack spacing={UI.Size.px(8)} align="center">
-            <UI.TextBox
-              value={prompt}
-              placeholder="Describe the task to execute in an isolated worktree..."
-              onChange={(v) => setPrompt(v)}
-              width={UI.Size.px(520)}
-            />
-            <UI.Button label={busy ? "Dispatching..." : "Dispatch"} disabled={busy || !prompt.trim()} onClick={() => void handleDispatch()} />
+            <div style={{ width: 520, maxWidth: "100%" }}>
+              <Input
+                value={prompt}
+                placeholder="Describe the task to execute in an isolated worktree..."
+                onChange={(e) => setPrompt(e.target.value)}
+              />
+            </div>
+            <Button variant="primary" size="sm" loading={busy} disabled={busy || !prompt.trim()} onClick={() => void handleDispatch()}>
+              {busy ? "Dispatching..." : "Dispatch"}
+            </Button>
           </UI.HStack>
-          {notice && <UI.Label>{notice}</UI.Label>}
+          {notice && <Badge variant="info">{notice}</Badge>}
         </UI.VStack>
-      </UI.Panel>
+      </Pane>
 
-      <UI.Panel padding={UI.Size.px(12)}>
+      <Pane padding={12}>
         <UI.VStack spacing={UI.Size.px(8)} align="stretch">
-          <UI.Label>Recent Worktree Runs (CLI + Web + T3)</UI.Label>
-          {tasks.length === 0 && <UI.Label>No tasks recorded yet.</UI.Label>}
+          <Heading>Recent Worktree Runs (CLI + Web + T3)</Heading>
+          {tasks.length === 0 && <Text muted>No tasks recorded yet.</Text>}
           {tasks.map((t) => (
-            <UI.Panel key={t.id} padding={UI.Size.px(10)}>
+            <Pane key={t.id} padding={10}>
               <UI.VStack spacing={UI.Size.px(4)} align="stretch">
-                <UI.HStack spacing={UI.Size.px(8)}>
-                  <UI.Label>[{t.status.toUpperCase()}]</UI.Label>
-                  <UI.Label>{t.complexity}</UI.Label>
-                  <UI.Label>{t.repoDir}</UI.Label>
+                <UI.HStack spacing={UI.Size.px(8)} align="center">
+                  <Badge variant={statusVariant(t.status)}>{t.status.toUpperCase()}</Badge>
+                  <Text>{t.complexity}</Text>
+                  <Text muted>{t.repoDir}</Text>
                   <UI.Spacer />
-                  <UI.Label>{new Date(t.startedAt).toLocaleString()}</UI.Label>
+                  <Text muted>{new Date(t.startedAt).toLocaleString()}</Text>
                 </UI.HStack>
-                <UI.Label>{t.prompt}</UI.Label>
+                <Text>{t.prompt}</Text>
                 {t.attempts.length > 0 && (
-                  <UI.Label>
+                  <Text muted>
                     Attempts: {t.attempts.map((a) => `${a.provider} (${a.note})`).join(" -> ")}
                     {t.merged ? " [merged]" : ""}
-                  </UI.Label>
+                  </Text>
                 )}
+                {t.prUrl && (
+                  <Text>
+                    Pull request:{" "}
+                    <a href={t.prUrl} target="_blank" rel="noreferrer">
+                      {t.prUrl.replace("https://github.com/", "")}
+                    </a>
+                  </Text>
+                )}
+                {t.error && <Text muted>{t.error}</Text>}
               </UI.VStack>
-            </UI.Panel>
+            </Pane>
           ))}
         </UI.VStack>
-      </UI.Panel>
+      </Pane>
     </UI.VStack>
   );
 }

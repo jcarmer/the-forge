@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { UI } from "@tbe/ui";
+import { Button, Input, Progress } from "reend-components";
+import { Choice, Heading, Pane, Text } from "../components";
 import type { RouteDecision, TaskComplexity, UsageSnapshot } from "../types";
 import { postAction } from "../hooks/useForgeState";
 
@@ -33,15 +35,17 @@ export function UsageRouterView({ usage }: { usage: UsageSnapshot | null }) {
 
   return (
     <UI.VStack spacing={UI.Size.px(12)} align="stretch">
-      <UI.Panel padding={UI.Size.px(12)}>
+      <Pane padding={12}>
         <UI.VStack spacing={UI.Size.px(10)} align="stretch">
           <UI.HStack spacing={UI.Size.px(8)} align="center">
-            <UI.Label>AI Provider Quotas</UI.Label>
+            <Heading>AI Provider Quotas</Heading>
             <UI.Spacer />
-            <UI.Label>
+            <Text muted>
               {usage ? `Collected ${new Date(usage.collectedAt).toLocaleTimeString()}` : "No usage snapshot yet"}
-            </UI.Label>
-            <UI.Button label={busy ? "Refreshing..." : "Refresh Usage"} disabled={busy} onClick={() => void refreshUsage()} />
+            </Text>
+            <Button variant="primary" size="sm" loading={busy} disabled={busy} onClick={() => void refreshUsage()}>
+              {busy ? "Refreshing..." : "Refresh Usage"}
+            </Button>
           </UI.HStack>
 
           {usage?.entries.length ? (
@@ -49,61 +53,64 @@ export function UsageRouterView({ usage }: { usage: UsageSnapshot | null }) {
               {usage.entries.map((e, i) => (
                 <UI.VStack key={`${e.provider}-${e.scope}-${e.model ?? i}`} spacing={UI.Size.px(4)} align="stretch">
                   <UI.HStack spacing={UI.Size.px(8)}>
-                    <UI.Label>{e.provider}</UI.Label>
-                    <UI.Label>({e.scope}{e.model ? ` / ${e.model}` : ""})</UI.Label>
+                    <Text>{e.provider}</Text>
+                    <Text muted>
+                      ({e.scope}
+                      {e.model ? ` / ${e.model}` : ""})
+                    </Text>
                     <UI.Spacer />
-                    <UI.Label>Resets {new Date(e.resetsAt).toLocaleString()}</UI.Label>
+                    <Text muted>Resets {new Date(e.resetsAt).toLocaleString()}</Text>
                   </UI.HStack>
-                  <UI.ProgressBar
+                  <Progress
                     value={e.remainingPct}
                     max={100}
-                    height={UI.Size.px(18)}
-                    label="{percent}% remaining"
-                    fillColor={e.remainingPct > 25 ? "#2ea043" : e.remainingPct > 10 ? "#d29922" : "#f85149"}
+                    showLabel
+                    variant={e.remainingPct > 25 ? "success" : e.remainingPct > 10 ? "default" : "danger"}
+                    aria-label={`${e.provider} ${e.scope} quota remaining`}
                   />
                 </UI.VStack>
               ))}
             </UI.VStack>
           ) : (
-            <UI.Label>Click "Refresh Usage" to collect live 5h/weekly quota windows.</UI.Label>
+            <Text muted>Click "Refresh Usage" to collect live 5h/weekly quota windows.</Text>
           )}
         </UI.VStack>
-      </UI.Panel>
+      </Pane>
 
-      <UI.Panel padding={UI.Size.px(12)}>
+      <Pane padding={12}>
         <UI.VStack spacing={UI.Size.px(10)} align="stretch">
-          <UI.Label>Route Simulator (pickProvider dry-run)</UI.Label>
+          <Heading>Route Simulator (pickProvider dry-run)</Heading>
           <UI.HStack spacing={UI.Size.px(10)} align="center">
-            <UI.Dropdown
+            <Choice
               label="Complexity"
-              selected={complexity}
+              value={complexity}
               options={[
                 { key: "trivial", label: "trivial (Ollama first)" },
                 { key: "normal", label: "normal (Ollama first)" },
                 { key: "hard", label: "hard (Cloud burn-rate)" },
               ]}
-              onSelect={(k) => setComplexity(k)}
+              onChange={setComplexity}
+              width={240}
             />
-            <UI.TextBox
-              value={modelHint}
-              placeholder="Optional model hint (e.g. Claude)"
-              onChange={(v) => setModelHint(v)}
-              width={UI.Size.px(240)}
-            />
-            <UI.Button label="Simulate Route" disabled={busy} onClick={() => void simulateRoute()} />
+            <div style={{ width: 240 }}>
+              <Input value={modelHint} placeholder="Optional model hint (e.g. Claude)" onChange={(e) => setModelHint(e.target.value)} />
+            </div>
+            <Button variant="primary" size="sm" disabled={busy} onClick={() => void simulateRoute()}>
+              Simulate Route
+            </Button>
           </UI.HStack>
 
           {decision && (
-            <UI.Panel padding={UI.Size.px(10)}>
+            <Pane padding={10}>
               <UI.VStack spacing={UI.Size.px(4)} align="stretch">
-                <UI.Label>Chosen Provider: {decision.provider ?? "NONE"}</UI.Label>
-                <UI.Label>Reason: {decision.reason}</UI.Label>
+                <Text>Chosen Provider: {decision.provider ?? "NONE"}</Text>
+                <Text muted>Reason: {decision.reason}</Text>
                 <pre>{JSON.stringify({ scores: decision.scores, blocked: decision.blocked }, null, 2)}</pre>
               </UI.VStack>
-            </UI.Panel>
+            </Pane>
           )}
         </UI.VStack>
-      </UI.Panel>
+      </Pane>
     </UI.VStack>
   );
 }

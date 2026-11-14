@@ -70,6 +70,8 @@ export interface TaskRecord {
   startedAt: string;
   finishedAt?: string;
   merged: boolean;
+  prUrl?: string;
+  error?: string;
   attempts: { provider: ProviderName; gateOk: boolean; reviewOk: boolean; note: string }[];
 }
 

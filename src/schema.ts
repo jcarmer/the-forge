@@ -84,6 +84,13 @@ export const ManifestSchema = z.object({
     mainBranch: z.string().default("main"),
     integrationBranch: z.string().default("ai-work"),
     taskBranchPrefix: z.string().default("task/"),
+    /**
+     * How a gated task lands on the integration branch:
+     * - `pr`: push the task branch and open a pull request (left open for review). Default.
+     * - `pr-merge`: open a pull request, then squash-merge it immediately (keeps a PR audit trail).
+     * - `direct`: legacy local squash-merge and push, no pull request.
+     */
+    taskMergeMode: z.enum(["pr", "pr-merge", "direct"]).default("pr"),
     reposVolume: z.string().default("repos"),
   }),
 

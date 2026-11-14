@@ -1,5 +1,7 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { darkTheme, ThemeProvider, UI } from "@tbe/ui";
+import { Badge, Button, Tabs, TabsContent, TabsList, TabsTrigger } from "reend-components";
+import { Heading, Pane, Text } from "./components";
 import { useForgeState } from "./hooks/useForgeState";
 import { ServicesView } from "./views/ServicesView";
 import { DiagnosticsView } from "./views/DiagnosticsView";
@@ -19,64 +21,71 @@ export function App() {
   const dirtyPkgs = state?.packages.filter((p) => p.dirty || p.unpushed).length ?? 0;
   const runningTasks = state?.tasks.filter((t) => t.status === "running").length ?? 0;
 
+  const tabs: { key: TabKey; title: string; content: ReactNode }[] = state
+    ? [
+        {
+          key: "services",
+          title: `Services (${state.services.length})`,
+          content: <ServicesView services={state.services} hostname={state.hostname} />,
+        },
+        {
+          key: "diagnostics",
+          title: failCount > 0 ? `Diagnostics (${failCount} fail)` : "Diagnostics (OK)",
+          content: (
+            <DiagnosticsView checks={state.diagnostics.checks} auth={state.auth.items} checkedAt={state.diagnostics.checkedAt} />
+          ),
+        },
+        { key: "usage", title: "Quota & Router", content: <UsageRouterView usage={state.usage} /> },
+        {
+          key: "packages",
+          title: dirtyPkgs > 0 ? `Packages & Repos (${dirtyPkgs} dirty)` : "Packages & Repos",
+          content: <PackagesReposView packages={state.packages} repos={state.repos} />,
+        },
+        {
+          key: "tasks",
+          title: runningTasks > 0 ? `Worktrees & Tasks (${runningTasks} active)` : "Worktrees & Tasks",
+          content: <TasksView tasks={state.tasks} repos={state.repos} />,
+        },
+      ]
+    : [];
+
   return (
     <ThemeProvider theme={darkTheme}>
       <UI.Padded padding={UI.Size.px(16)} width={UI.Size.vw(1)} height={UI.Size.vh(1)}>
         <UI.VStack width={UI.Size.fill(1)} height={UI.Size.fill(1)} spacing={UI.Size.px(12)} align="stretch">
-          <UI.Panel padding={UI.Size.px(12)}>
+          <Pane padding={12}>
             <UI.HStack spacing={UI.Size.px(12)} align="center">
-              <UI.Label>The Forge ({state?.hostname ?? "ai-sandbox"})</UI.Label>
-              <UI.Label>· branch: {state?.integrationBranch ?? "ai-work"}</UI.Label>
+              <Heading>The Forge ({state?.hostname ?? "ai-sandbox"})</Heading>
+              <Text muted>· branch: {state?.integrationBranch ?? "ai-work"}</Text>
               <UI.Spacer />
-              <UI.Label>{connected ? "SSE Live" : "Reconnecting..."}</UI.Label>
-              {error && <UI.Label>Error: {error}</UI.Label>}
-              <UI.Button preset="ghost" label="Refresh" onClick={() => void reload()} />
+              <Badge variant={connected ? "success" : "warning"}>{connected ? "SSE Live" : "Reconnecting..."}</Badge>
+              {error && <Badge variant="danger">Error: {error}</Badge>}
+              <Button variant="ghost" size="sm" onClick={() => void reload()}>
+                Refresh
+              </Button>
             </UI.HStack>
-          </UI.Panel>
+          </Pane>
 
           {!state ? (
-            <UI.Panel padding={UI.Size.px(16)}>
-              <UI.Label>Connecting to Forge state stream...</UI.Label>
-            </UI.Panel>
+            <Pane padding={16}>
+              <Text>Connecting to Forge state stream...</Text>
+            </Pane>
           ) : (
             <UI.Scroll height={UI.Size.fill(1)}>
-              <UI.Tabs<TabKey>
-                active={tab}
-                onChange={(k) => setTab(k)}
-                tabs={[
-                  {
-                    key: "services",
-                    title: `Services (${state.services.length})`,
-                    content: <ServicesView services={state.services} hostname={state.hostname} />,
-                  },
-                  {
-                    key: "diagnostics",
-                    title: failCount > 0 ? `Diagnostics (${failCount} fail)` : "Diagnostics (OK)",
-                    content: (
-                      <DiagnosticsView
-                        checks={state.diagnostics.checks}
-                        auth={state.auth.items}
-                        checkedAt={state.diagnostics.checkedAt}
-                      />
-                    ),
-                  },
-                  {
-                    key: "usage",
-                    title: "Quota & Router",
-                    content: <UsageRouterView usage={state.usage} />,
-                  },
-                  {
-                    key: "packages",
-                    title: dirtyPkgs > 0 ? `Packages & Repos (${dirtyPkgs} dirty)` : "Packages & Repos",
-                    content: <PackagesReposView packages={state.packages} repos={state.repos} />,
-                  },
-                  {
-                    key: "tasks",
-                    title: runningTasks > 0 ? `Worktrees & Tasks (${runningTasks} active)` : "Worktrees & Tasks",
-                    content: <TasksView tasks={state.tasks} repos={state.repos} />,
-                  },
-                ]}
-              />
+              <Tabs value={tab} onValueChange={(k) => setTab(k as TabKey)}>
+                <TabsList>
+                  {tabs.map((t) => (
+                    <TabsTrigger key={t.key} value={t.key}>
+                      {t.title}
+                    </TabsTrigger>
+                  ))}
+                </TabsList>
+                {tabs.map((t) => (
+                  <TabsContent key={t.key} value={t.key}>
+                    <div style={{ paddingTop: 12 }}>{t.content}</div>
+                  </TabsContent>
+                ))}
+              </Tabs>
             </UI.Scroll>
           )}
         </UI.VStack>
