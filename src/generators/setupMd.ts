@@ -41,11 +41,17 @@ A Docker stack on a Windows 11 desktop (RTX 3080) that runs coding agents in iso
 
 ## 3. Build and run
 \`\`\`powershell
-./bootstrap.ps1          # installs/checks Node, installs dependencies
+./bootstrap.ps1          # installs/checks Node, installs dependencies, builds CLI
 npx tsx src/cli.ts init  # guided: checks prerequisites, creates .env
 npx tsx src/cli.ts up    # generates files, builds the image, starts the stack
+npx tsx src/cli.ts clone # clones manifest repos into /projects
 npx tsx src/cli.ts doctor
 \`\`\`
+
+### One-time logins on a new machine
+- \`docker exec -it ${m.containerName} claude auth login\` (Claude Pro subscription)
+- \`docker exec -it ${m.containerName} agy\` (Antigravity Google login)
+- \`npx tsx src/cli.ts tunnel-login\` then \`npx tsx src/cli.ts up\` (VS Code tunnel)
 
 ## 4. Services (reachable on the tailnet node, not on Windows localhost)
 | Service | Port | Purpose |

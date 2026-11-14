@@ -18,6 +18,11 @@ if (-not (Test-Path "node_modules")) {
     npm install
 }
 
+if (-not (Test-Path "dist/src/cli.js")) {
+    Write-Host "Building TypeScript CLI..."
+    npm run build
+}
+
 if ($args.Count -eq 0) {
     npx tsx src/cli.ts init
 } else {
