@@ -53,8 +53,8 @@ Primary model `qwen2.5-coder:7b`, extras: qwen2.5:7b. The `ollama-helper` MCP se
 
 ## 9. Provider routing (preference order, adjusted by live usage)
 0. ollama
-1. antigravity (usage: `agy /usage`)
-2. claude (usage: `claude /usage`)
+1. antigravity (usage: `agy -p "/usage"`)
+2. claude (usage: `claude -p "/usage"`)
 
 Usage limits come in three scopes: `5h`, `weekly`, `model_weekly`. Prefer Ollama; for cloud providers spend quota that resets soonest.
 

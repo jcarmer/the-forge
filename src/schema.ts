@@ -20,6 +20,8 @@ export const ManifestSchema = z.object({
     buddyEnvFile: z.string(),
     /** Old bind-mounted workspace on Windows; only read by `migrate-check`. */
     legacySandboxDir: z.string().optional(),
+    /** Non-repo directories in legacySandboxDir that should be ignored by `migrate-check`. */
+    ignoredLegacyDirs: z.array(z.string()).default([]),
   }),
 
   /** Repos cloned into the repos volume by `clone`. URLs must NOT contain credentials. */

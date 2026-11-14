@@ -14,6 +14,7 @@ export default defineManifest({
     metaDir: "C:/projects/local-only/meta",
     buddyEnvFile: "C:/projects/local-only/buddy.env",
     legacySandboxDir: "C:/projects/sandbox",
+    ignoredLegacyDirs: ["art-created", "comfyui", "dnd-content", "pixelover", "prototype-art"],
   },
 
   repos: [
@@ -60,7 +61,7 @@ export default defineManifest({
 
   providers: [
     { name: "ollama", priority: 0 },
-    { name: "antigravity", priority: 1, usageCommand: "agy /usage" },
-    { name: "claude", priority: 2, usageCommand: "claude /usage" },
+    { name: "antigravity", priority: 1, usageCommand: 'agy -p "/usage"' },
+    { name: "claude", priority: 2, usageCommand: 'claude -p "/usage"' },
   ],
 });

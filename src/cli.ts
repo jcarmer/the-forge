@@ -1,11 +1,16 @@
+import { existsSync, readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import manifest from "../sandbox.config.js";
 import { writeAll } from "./generators/index.js";
 import { preflight, doctor, drift, run, migrateCheck, cloneRepos, type Check } from "./ops.js";
+import { collectUsage } from "./usage/collector.js";
+import { pickProvider, type TaskComplexity } from "./usage/router.js";
+import { UsageSnapshotSchema, type ProviderName } from "./usage/schema.js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const dir = resolve(root, "generated");
+const stateDir = resolve(root, ".forge-state");
 const [cmd = "help", ...rest] = process.argv.slice(2);
 
 function printChecks(checks: Check[]): boolean {
@@ -74,7 +79,41 @@ switch (cmd) {
     const d = drift(manifest, dir);
     if (!d.length) console.log("No drift detected.");
     for (const x of d) console.log(`[${x.kind}] ${x.message}`);
+
+    // Test case: verify live /usage collection & parsing works when container is running
+    const target = rest.find((a) => !a.startsWith("-")) ?? manifest.containerName;
+    if (run("docker", ["inspect", "-f", "{{.State.Running}}", target]).out.trim() === "true") {
+      const snap = await collectUsage(manifest, stateDir, { containerName: target });
+      for (const [prov, src] of Object.entries(snap.sources)) {
+        const ok = src !== "error";
+        console.log(`[usage] ${prov}: ${ok ? `OK (${src})` : "FAIL (parse/exec error)"}`);
+        if (!ok) d.push({ kind: "live", message: `/usage failed for ${prov}` });
+      }
+    }
     process.exitCode = d.length ? 1 : 0;
+    break;
+  }
+  case "usage": {
+    const target = rest[0] ?? manifest.containerName;
+    const snap = await collectUsage(manifest, stateDir, { containerName: target });
+    console.log(`Collected at ${snap.collectedAt}`);
+    for (const [p, s] of Object.entries(snap.sources)) console.log(`  source[${p}] = ${s}`);
+    for (const e of snap.entries) {
+      console.log(`  ${e.provider.padEnd(11)} ${e.scope.padEnd(12)} ${(e.model ?? "-").padEnd(22)} ${String(e.remainingPct).padStart(4)}%  resets ${e.resetsAt}`);
+    }
+    break;
+  }
+  case "route": {
+    const complexity = (rest[0] as TaskComplexity) || "normal";
+    const exclude = rest.slice(1) as ProviderName[];
+    const cacheFile = resolve(stateDir, "usage.json");
+    const snap = existsSync(cacheFile)
+      ? UsageSnapshotSchema.parse(JSON.parse(readFileSync(cacheFile, "utf8")))
+      : await collectUsage(manifest, stateDir);
+    const decision = pickProvider(manifest, snap, { complexity, exclude });
+    console.log(`Chosen: ${decision.provider ?? "NONE"} (${decision.reason})`);
+    console.log("Scores:", JSON.stringify(decision.scores));
+    if (Object.keys(decision.blocked).length) console.log("Blocked:", JSON.stringify(decision.blocked));
     break;
   }
   case "build":
@@ -100,5 +139,5 @@ switch (cmd) {
     break;
   }
   default:
-    console.log("the-forge <generate|init|build|up|down|status|doctor|logs [svc]|tunnel-login|healthcheck|migrate-check|clone>");
+    console.log("the-forge <generate|init|build|up|down|status|doctor|logs [svc]|tunnel-login|healthcheck|migrate-check|clone|usage [container]|route [trivial|normal|hard]>");
 }

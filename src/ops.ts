@@ -98,9 +98,10 @@ export function migrateCheck(m: Manifest): { dir: string; status: "ok" | "warn";
   const root = m.paths.legacySandboxDir;
   if (!root || !existsSync(root)) return [{ dir: root ?? "(unset)", status: "warn", note: "legacy workspace not found" }];
   const known = new Set(m.repos.map((r) => r.name));
+  const ignored = new Set(m.paths.ignoredLegacyDirs);
   const rows: { dir: string; status: "ok" | "warn"; note: string }[] = [];
   for (const e of readdirSync(root, { withFileTypes: true })) {
-    if (!e.isDirectory() || e.name.startsWith(".")) continue;
+    if (!e.isDirectory() || e.name.startsWith(".") || ignored.has(e.name)) continue;
     const p = join(root, e.name);
     if (!existsSync(join(p, ".git"))) {
       rows.push({ dir: e.name, status: "warn", note: "not a git repo: copy it into the volume manually (or back it up); `clone` will not bring it over" });
