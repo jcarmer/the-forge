@@ -63,7 +63,9 @@ export function GitView({ git }: { git: GitReposState }) {
   if (selected) {
     return (
       <GitRepoDetail
+        key={selected.name}
         repo={selected}
+        onChanged={() => void reload()}
         onBack={() => {
           setSelectedRepo(null);
           void reload();

@@ -1,4 +1,4 @@
-import { createContext, useContext, type ButtonHTMLAttributes, type CSSProperties, type InputHTMLAttributes, type ReactNode } from "react";
+import { createContext, useContext, useEffect, type ButtonHTMLAttributes, type CSSProperties, type InputHTMLAttributes, type KeyboardEvent, type ReactNode } from "react";
 import { CornerCutButton } from "./components/neonblade-ui/corner-cut-button";
 import { Badge as NeonBadge } from "./components/neonblade-ui/badge";
 import { NotchCard } from "./components/neonblade-ui/notch-card";
@@ -225,5 +225,78 @@ export function TextDialog({
         {content}
       </pre>
     </NeonModal>
+  );
+}
+
+const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+/** Keeps Tab / Shift+Tab inside the open dialog (Neon Blade's modal only focuses the panel on open). */
+function trapTab(e: KeyboardEvent) {
+  if (e.key !== "Tab") return;
+  const dlg = (e.target as HTMLElement).closest<HTMLElement>('[role="dialog"]');
+  if (!dlg) return;
+  const items = Array.from(dlg.querySelectorAll<HTMLElement>(FOCUSABLE)).filter((el) => el.getClientRects().length > 0);
+  const first = items[0];
+  const last = items[items.length - 1];
+  if (!first || !last) return;
+  const active = document.activeElement;
+  if (e.shiftKey && (active === first || active === dlg)) {
+    e.preventDefault();
+    last.focus();
+  } else if (!e.shiftKey && active === last) {
+    e.preventDefault();
+    first.focus();
+  }
+}
+
+/**
+ * General modal dialog: title, arbitrary body, footer actions. Focus is trapped while open and returns to the
+ * previously focused control on close. `dismissable=false` (e.g. while an action runs) disables Escape/backdrop close.
+ * Mount it conditionally if its inner state should reset on every open.
+ */
+export function Dialog({
+  open,
+  title,
+  onClose,
+  children,
+  footer,
+  variant = "primary",
+  dismissable = true,
+}: {
+  open: boolean;
+  title: string;
+  onClose: () => void;
+  children: ReactNode;
+  footer?: ReactNode;
+  variant?: Variant;
+  dismissable?: boolean;
+}) {
+  useEffect(() => {
+    if (!open) return;
+    const prev = document.activeElement as HTMLElement | null;
+    return () => prev?.focus?.();
+  }, [open]);
+  return (
+    <div style={{ display: "contents" }} onKeyDown={trapTab}>
+      <NeonModal
+        open={open}
+        onClose={() => {
+          if (dismissable) onClose();
+        }}
+        closeOnBackdrop={dismissable}
+        closeOnEscape={dismissable}
+        showCloseButton={dismissable}
+        size="lg"
+        corner="all"
+        cornerSize={14}
+        color={COLOR[variant]}
+        scrollableBody
+        header={{ title }}
+        footer={footer ? { children: footer, align: "right" } : undefined}
+        ariaLabel={title}
+      >
+        <div style={{ color: FG, fontSize: 13, display: "flex", flexDirection: "column", gap: 12 }}>{children}</div>
+      </NeonModal>
+    </div>
   );
 }
