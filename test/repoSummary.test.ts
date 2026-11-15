@@ -55,13 +55,28 @@ afterAll(() => {
 });
 
 describe("summarizeRepo", () => {
-  it("reports a clean repo", async () => {
+  it("reports a clean repo with lastCommit and branch config", async () => {
     makeRepo("clean");
     const s = await summarizeRepo(projects, "clean", opts);
     expect(s).toMatchObject({
-      branch: "main", dirty: false, changedFiles: 0, ahead: 0, behind: 0, noUpstream: false,
-      openBranches: [], openPrs: [], ghAvailable: true, stashes: 0, attention: "clean", reasons: [],
+      branch: "main",
+      mainBranch: "main",
+      integrationBranch: "ai-work",
+      dirty: false,
+      changedFiles: 0,
+      ahead: 0,
+      behind: 0,
+      noUpstream: false,
+      openBranches: [],
+      mergedBranches: [],
+      openPrs: [],
+      ghAvailable: true,
+      stashes: 0,
+      attention: "clean",
+      reasons: [],
     });
+    expect(s.lastCommit).toMatchObject({ subject: "init" });
+    expect(s.lastCommit?.sha).toBeTruthy();
   });
 
   it("counts uncommitted and untracked files as dirty", async () => {
@@ -93,9 +108,10 @@ describe("summarizeRepo", () => {
     expect(s).toMatchObject({ ahead: 1, behind: 0, attention: "ahead", reasons: ["ahead"] });
   });
 
-  it("lists unmerged local branches, including the current one, but not main", async () => {
+  it("lists unmerged and merged local branches, excluding main, integration, and current from mergedBranches", async () => {
     const { repo } = makeRepo("branches");
     git(repo, "branch", "merged"); // same commit as main => fully merged
+    git(repo, "branch", "ai-work"); // same commit as main => protected integration branch
     git(repo, "checkout", "-q", "-b", "feat/x");
     writeFileSync(join(repo, "d.txt"), "4");
     git(repo, "add", "-A");
@@ -103,6 +119,7 @@ describe("summarizeRepo", () => {
     const s = await summarizeRepo(projects, "branches", opts);
     expect(s.branch).toBe("feat/x");
     expect(s.openBranches).toEqual(["feat/x"]);
+    expect(s.mergedBranches).toEqual(["merged"]);
     expect(s.reasons).toContain("branches");
     expect(s.noUpstream).toBe(true);
   });

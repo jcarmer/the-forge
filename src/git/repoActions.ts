@@ -17,7 +17,7 @@ import { existsSync, lstatSync, mkdtempSync, readFileSync, rmSync } from "node:f
 import { tmpdir } from "node:os";
 import { isAbsolute, join, normalize, relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
-import { openPullRequestAsync } from "./pullRequest.js";
+import { openPullRequestAsync, squashMergePullRequestAsync } from "./pullRequest.js";
 import { RepoActionError, resolveRepo } from "./repoResolve.js";
 import { invalidateRepoCaches } from "./repoSummary.js";
 
@@ -1207,6 +1207,112 @@ export function deleteBranches(
   });
 }
 
+/**
+ * One-click safe cleanup of all local branches already merged into `mainBranch`
+ * (`git branch -d`, never `-D`; skips `mainBranch`, `integrationBranch`, and the checked-out branch).
+ * Because `git branch -d` only deletes local refs whose commits are already in `main`, no typed confirmation is required.
+ */
+export function cleanMergedBranches(
+  dir: string,
+  opts: { mainBranch: string; integrationBranch: string },
+): Promise<GitActionResult> {
+  return withLock(dir, async () => {
+    const current = await currentBranch(dir);
+    const base = await mainBase(dir, opts.mainBranch);
+    if (!base) throw new RepoActionError(`main branch ${opts.mainBranch} not found`);
+    const mergedRes = await git(dir, ["for-each-ref", "--format=%(refname:short)", "--merged", base, "refs/heads"]);
+    const candidates = mergedRes.out
+      .split("\n")
+      .map((s) => s.trim())
+      .filter((b) => Boolean(b) && b !== opts.mainBranch && b !== opts.integrationBranch && b !== current);
+    if (!candidates.length) {
+      return { ok: true, detail: `no merged local branches to clean up`, results: [] };
+    }
+    const results: { branch: string; ok: boolean; detail: string }[] = [];
+    for (const name of candidates) {
+      const r = await git(dir, ["branch", "-d", "--", name]);
+      results.push({ branch: name, ok: r.code === 0, detail: r.code === 0 ? r.out.trim() || "deleted" : msg(r, "git branch -d failed") });
+    }
+    const deleted = results.filter((r) => r.ok).length;
+    return {
+      ok: deleted === results.length,
+      detail: `cleaned ${deleted} of ${results.length} merged branch(es)`,
+      results,
+    };
+  });
+}
+
+/** Pushes the checked-out branch (or a specified local `branch`) to `origin` without committing (never forced). */
+export function pushCurrentBranch(dir: string, body: { branch?: unknown } = {}): Promise<GitActionResult> {
+  return withLock(dir, async () => {
+    const target = body.branch !== undefined && body.branch !== null ? await assertBranchName(dir, body.branch, "branch") : await requireBranch(dir);
+    if ((await git(dir, ["rev-parse", "--verify", "-q", `refs/heads/${target}`])).code !== 0) {
+      throw new RepoActionError(`no local branch named ${target}`);
+    }
+    if (!(await hasOrigin(dir))) throw new RepoActionError("no origin remote to push to");
+    const push = await pushBranch(dir, target);
+    return { ok: push.ok, detail: push.detail, pushed: push.ok };
+  });
+}
+
+/**
+ * Squash-merges an open pull request and deletes its remote branch via `gh pr merge <target> --squash --delete-branch`.
+ * Requires only `Contents: Read & Write` and `Pull requests: Read & Write` (no Administration permission).
+ * Also fetches/prunes origin and safely deletes the local head branch (`git branch -d`) if it is not checked out.
+ */
+export function mergePr(
+  dir: string,
+  body: { number?: unknown; url?: unknown; headBranch?: unknown },
+  opts: { mainBranch: string; integrationBranch: string; ghTimeoutMs?: number },
+): Promise<GitActionResult> {
+  return withLock(dir, async () => {
+    let target: string;
+    if (typeof body.number === "number" && Number.isInteger(body.number) && body.number > 0) {
+      target = String(body.number);
+    } else if (typeof body.url === "string" && PR_URL_RE.test(body.url.trim())) {
+      target = body.url.trim();
+    } else {
+      throw new RepoActionError("provide a valid PR number (positive integer) or GitHub PR url");
+    }
+    const headBranch =
+      body.headBranch !== undefined && body.headBranch !== null ? await assertBranchName(dir, body.headBranch, "headBranch") : undefined;
+
+    if (!(await hasOrigin(dir))) throw new RepoActionError("no origin remote");
+    const merged = await squashMergePullRequestAsync(dir, target, { timeoutMs: opts.ghTimeoutMs });
+    invalidateRepoCaches(dir);
+    if (!merged.ok) {
+      return { ok: false, merged: false, detail: redact(merged.detail), ...(merged.url ? { url: merged.url } : {}) };
+    }
+
+    // Best-effort post-merge local cleanup: prune remote tracking refs, fast-forward if on main/integration,
+    // and delete the local head branch if it is not currently checked out.
+    await git(dir, ["fetch", "--quiet", "--prune", "origin"], { timeout: NET_TIMEOUT });
+    const current = await currentBranch(dir);
+    let cleanedBranch: string | undefined;
+    if (
+      headBranch &&
+      headBranch !== current &&
+      headBranch !== opts.mainBranch &&
+      headBranch !== opts.integrationBranch &&
+      (await git(dir, ["rev-parse", "--verify", "-q", `refs/heads/${headBranch}`])).code === 0
+    ) {
+      const del = await git(dir, ["branch", "-d", "--", headBranch]);
+      if (del.code === 0) cleanedBranch = headBranch;
+    }
+    if (current === opts.mainBranch || current === opts.integrationBranch) {
+      await git(dir, ["merge", "--ff-only", "@{u}"], { timeout: 30_000 });
+    }
+    const suffix = cleanedBranch ? ` (deleted local branch ${cleanedBranch})` : "";
+    return {
+      ok: true,
+      merged: true,
+      detail: `${redact(merged.detail)}${suffix}`,
+      ...(merged.url ? { url: merged.url } : {}),
+      ...(cleanedBranch ? { cleanedBranch } : {}),
+    };
+  });
+}
+
 // ---------------------------------------------------------------------------------------------
 // HTTP dispatch (kept here so route-level validation is unit-testable without a server)
 // ---------------------------------------------------------------------------------------------
@@ -1229,7 +1335,24 @@ export interface RepoRouteRequest {
 }
 
 const GET_ROUTES = new Set(["changes", "diff", "branches", "stashes", "links"]);
-const POST_ROUTES = new Set(["summary", "draft-message", "commit-push", "create-pr", "commit-pr", "discard", "pull", "sync-main", "stash", "stash-pop", "stage", "unstage", "delete-branches"]);
+const POST_ROUTES = new Set([
+  "summary",
+  "draft-message",
+  "commit-push",
+  "push",
+  "create-pr",
+  "commit-pr",
+  "merge-pr",
+  "discard",
+  "pull",
+  "sync-main",
+  "stash",
+  "stash-pop",
+  "stage",
+  "unstage",
+  "delete-branches",
+  "clean-merged",
+]);
 
 /** Matches `/api/git/repo/<name>/<action>`; returns null for other paths. */
 export function matchRepoRoute(pathname: string): { name: string; action: string } | null {
@@ -1273,11 +1396,17 @@ export async function handleRepoRoute(cfg: RepoRouteConfig, req: RepoRouteReques
       case "commit-push":
         out = await commitAndPush(dir, b);
         break;
+      case "push":
+        out = await pushCurrentBranch(dir, b);
+        break;
       case "create-pr":
         out = await createPr(dir, b, { base: cfg.mainBranch });
         break;
       case "commit-pr":
         out = await commitToNewBranchPr(dir, b, { base: cfg.mainBranch });
+        break;
+      case "merge-pr":
+        out = await mergePr(dir, b, branchOpts);
         break;
       case "discard":
         out = await discardChanges(dir, req.name, b);
@@ -1303,6 +1432,9 @@ export async function handleRepoRoute(cfg: RepoRouteConfig, req: RepoRouteReques
       case "delete-branches":
         out = await deleteBranches(dir, req.name, b, branchOpts);
         break;
+      case "clean-merged":
+        out = await cleanMergedBranches(dir, branchOpts);
+        break;
     }
     const result = out as GitActionResult;
     return { status: result.ok ? 200 : 400, body: result };
@@ -1311,3 +1443,4 @@ export async function handleRepoRoute(cfg: RepoRouteConfig, req: RepoRouteReques
     throw e;
   }
 }
+

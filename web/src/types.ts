@@ -56,17 +56,27 @@ export interface GitRepoPr {
 
 export type GitRepoReason = "dirty" | "behind" | "ahead" | "prs" | "branches";
 
+export interface GitLastCommit {
+  sha: string;
+  subject: string;
+  date: string;
+}
+
 /** Mirrors RepoSummary in src/git/repoSummary.ts (GET /api/git/repos). */
 export interface GitRepoSummary {
   name: string;
   path: string;
   branch: string;
+  mainBranch?: string;
+  integrationBranch?: string;
   dirty: boolean;
   changedFiles: number;
   ahead: number;
   behind: number;
   noUpstream: boolean;
   openBranches: string[];
+  mergedBranches?: string[];
+  lastCommit?: GitLastCommit | null;
   openPrs: GitRepoPr[] | null;
   ghAvailable: boolean;
   stashes: number;
@@ -223,9 +233,12 @@ export interface GitActionResult {
   ok: boolean;
   detail: string;
   error?: string;
-  /** create-pr */
+  /** create-pr / merge-pr */
   url?: string;
-  /** commit-push / create-pr / sync-main */
+  /** merge-pr */
+  merged?: boolean;
+  cleanedBranch?: string;
+  /** commit-push / create-pr / sync-main / push */
   pushed?: boolean;
   committed?: boolean;
   commit?: string;

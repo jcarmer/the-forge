@@ -1,23 +1,27 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { mkdtempSync, writeFileSync, chmodSync, rmSync, readFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync, chmodSync, rmSync, readFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { openPullRequest, openPullRequestAsync, squashMergePullRequest } from "../src/git/pullRequest.js";
+import { openPullRequest, openPullRequestAsync, squashMergePullRequest, squashMergePullRequestAsync } from "../src/git/pullRequest.js";
 
 // A fake `gh` on PATH: `pr list` prints $FAKE_EXISTING, `pr create` prints a URL, `pr merge` obeys $FAKE_MERGE_FAIL.
+// `repo edit` records to $FAKE_EDIT_LOG and exits 1 (must never be called).
 let dir: string;
 let oldPath: string | undefined;
 beforeAll(() => {
   dir = mkdtempSync(join(tmpdir(), "fake-gh-"));
   const script = `#!/bin/bash
 case "$1 $2" in
-  "repo edit") echo "$*" >> "\${FAKE_EDIT_LOG:-/dev/null}"; [ -n "$FAKE_EDIT_FAIL" ] && { echo "Must have admin rights"; exit 1; }; exit 0;;
+  "repo edit") echo "$*" >> "\${FAKE_EDIT_LOG:-/dev/null}"; echo "Must have admin rights"; exit 1;;
   "pr list") [ -n "$FAKE_EXISTING" ] && echo "$FAKE_EXISTING"; exit 0;;
   "pr create")
     [ -n "$FAKE_SLEEP" ] && sleep "$FAKE_SLEEP"
     if [ -n "$FAKE_REQUIRE_NOPROMPT" ] && { [ "$GH_PROMPT_DISABLED" != 1 ] || [ "$GIT_TERMINAL_PROMPT" != 0 ]; }; then echo "would prompt"; exit 1; fi
     echo "https://github.com/o/r/pull/7"; exit 0;;
-  "pr merge") [ -n "$FAKE_MERGE_FAIL" ] && { echo "blocked by branch protection"; exit 1; }; exit 0;;
+  "pr merge")
+    echo "$*" >> "\${FAKE_MERGE_LOG:-/dev/null}"
+    [ -n "$FAKE_MERGE_FAIL" ] && { echo "blocked by branch protection"; exit 1; }
+    echo "https://github.com/o/r/pull/7"; exit 0;;
 esac
 exit 1
 `;
@@ -48,27 +52,39 @@ describe("pull requests via gh", () => {
     delete process.env.FAKE_EXISTING;
   });
 
-  it("applies squash-only repo settings before creating the PR, and only warns if that fails", () => {
+  it("never calls `gh repo edit` (no Administration permission needed on GH_TOKEN)", async () => {
     const log = join(dir, "edit.log");
     process.env.FAKE_EDIT_LOG = log;
     delete process.env.FAKE_EXISTING;
-    expect(openPullRequest(tmpdir(), opts)).toMatchObject({ ok: true, detail: "pull request opened" });
-    expect(readFileSync(log, "utf8").trim()).toBe(
-      "repo edit --enable-squash-merge --enable-merge-commit=false --enable-rebase-merge=false --delete-branch-on-merge --enable-auto-merge",
-    );
-    process.env.FAKE_EDIT_FAIL = "1";
-    const r = openPullRequest(tmpdir(), opts);
-    expect(r.ok).toBe(true);
-    expect(r.detail).toContain("repo merge settings not updated: Must have admin rights");
-    delete process.env.FAKE_EDIT_FAIL;
-    delete process.env.FAKE_EDIT_LOG;
+    try {
+      expect(openPullRequest(tmpdir(), opts)).toMatchObject({ ok: true, detail: "pull request opened" });
+      expect(await openPullRequestAsync(tmpdir(), opts)).toMatchObject({ ok: true, detail: "pull request opened" });
+      expect(existsSync(log)).toBe(false);
+    } finally {
+      delete process.env.FAKE_EDIT_LOG;
+    }
   });
 
-  it("reports merge failures instead of throwing", () => {
-    process.env.FAKE_MERGE_FAIL = "1";
-    expect(squashMergePullRequest(tmpdir(), "https://github.com/o/r/pull/7")).toMatchObject({ ok: false, merged: false });
-    delete process.env.FAKE_MERGE_FAIL;
-    expect(squashMergePullRequest(tmpdir(), "https://github.com/o/r/pull/7")).toMatchObject({ ok: true, merged: true });
+  it("squash-merges and deletes branch both synchronously and asynchronously", async () => {
+    const mergeLog = join(dir, "merge.log");
+    process.env.FAKE_MERGE_LOG = mergeLog;
+    try {
+      process.env.FAKE_MERGE_FAIL = "1";
+      expect(squashMergePullRequest(tmpdir(), "https://github.com/o/r/pull/7")).toMatchObject({ ok: false, merged: false });
+      expect(await squashMergePullRequestAsync(tmpdir(), "7")).toMatchObject({ ok: false, merged: false });
+      delete process.env.FAKE_MERGE_FAIL;
+      expect(squashMergePullRequest(tmpdir(), "https://github.com/o/r/pull/7")).toMatchObject({ ok: true, merged: true });
+      expect(await squashMergePullRequestAsync(tmpdir(), "7")).toMatchObject({
+        ok: true,
+        merged: true,
+        url: "https://github.com/o/r/pull/7",
+      });
+      const lines = readFileSync(mergeLog, "utf8").trim().split("\n");
+      expect(lines.at(-1)).toBe("pr merge 7 --squash --delete-branch");
+    } finally {
+      delete process.env.FAKE_MERGE_LOG;
+      delete process.env.FAKE_MERGE_FAIL;
+    }
   });
 });
 
@@ -106,3 +122,4 @@ describe("openPullRequestAsync (web server path)", () => {
     }
   });
 });
+

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Pane, Text } from "../components";
+import { gitPost } from "../hooks/useGitRepoApi";
 import { useGitRepoData } from "../hooks/useGitRepoData";
 import type { GitActionResult, GitChangedFile, GitRepoSummary } from "../types";
 import { ActionsBar } from "./git/ActionsBar";
@@ -94,7 +95,7 @@ export default function GitRepoDetail({
   const currentBranchInfo = data.branches?.branches.find((b) => b.isCurrent);
   const branch = repo.branch;
   const detached = isDetached(branch);
-  const mainBranch = guessBaseBranch(data.links, data.branches?.branches ?? null, data.branches?.mainBranch);
+  const mainBranch = guessBaseBranch(data.links, data.branches?.branches ?? null, data.branches?.mainBranch ?? repo.mainBranch);
   const closeDialog = () => setDialog(null);
 
   const refreshAll = () => {
@@ -143,7 +144,14 @@ export default function GitRepoDetail({
           totalCount={allFiles.length}
           hasBranch={!detached}
           onMain={branch === mainBranch}
+          mainBranch={mainBranch}
+          ahead={repo.ahead}
+          behind={repo.behind}
+          noUpstream={repo.noUpstream}
           onCommit={() => setDialog({ kind: "commit" })}
+          onPush={() => void ctx.run("push", "Push", () => gitPost(name, "push"))}
+          onPull={() => void ctx.run("pull", "Pull", () => gitPost(name, "pull"))}
+          onSyncMain={() => void ctx.run("sync-main", `Sync from ${mainBranch}`, () => gitPost(name, "sync-main"))}
           onPr={() => setDialog(!detached && branch === mainBranch && selected.length > 0 ? { kind: "new-branch-pr" } : { kind: "pr" })}
           onDiscard={() =>
             setDialog({
@@ -152,6 +160,24 @@ export default function GitRepoDetail({
               scope: selected.length === allFiles.length ? "ALL uncommitted changes" : `the ${selected.length} selected file${selected.length === 1 ? "" : "s"}`,
             })
           }
+        />
+
+        <BranchesPanel
+          data={data.branches}
+          openPrs={repo.openPrs}
+          error={data.errors.branches}
+          ctx={ctx}
+          selected={branchSel}
+          onSelectedChange={setBranchSel}
+          onDelete={(names) => setDialog({ kind: "delete-branches", names })}
+          onCleanMerged={() => void ctx.run("clean-merged", "Clean merged branches", () => gitPost(name, "clean-merged"))}
+          onCreatePr={(b) => setDialog({ kind: "pr", branch: b })}
+          onMergePr={(pr) =>
+            void ctx.run(`merge-pr:${pr.number}`, `Squash & merge PR #${pr.number}`, () =>
+              gitPost(name, "merge-pr", { number: pr.number, url: pr.url, headBranch: pr.headRefName }),
+            )
+          }
+          onRetry={() => void data.refresh()}
         />
 
         <MorePanel
@@ -163,17 +189,6 @@ export default function GitRepoDetail({
           ctx={ctx}
           onRegenerateSummary={() => void summary.regenerate()}
           summaryLoading={summary.state.status === "loading"}
-        />
-
-        <BranchesPanel
-          data={data.branches}
-          error={data.errors.branches}
-          ctx={ctx}
-          selected={branchSel}
-          onSelectedChange={setBranchSel}
-          onDelete={(names) => setDialog({ kind: "delete-branches", names })}
-          onCreatePr={(b) => setDialog({ kind: "pr", branch: b })}
-          onRetry={() => void data.refresh()}
         />
 
         <Text muted>Changes and branches are loaded when you open this page and after every action; use Refresh to reload.</Text>
