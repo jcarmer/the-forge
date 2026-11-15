@@ -30,6 +30,11 @@ describe("generators", () => {
     expect(files["entrypoint.sh"]).toContain("--listen 0.0.0.0 --port 8188");
   });
 
+  it("invokes entrypoint.sh via /bin/bash so Windows bind mounts do not require +x", () => {
+    expect(files["Dockerfile"]).toContain('ENTRYPOINT ["/bin/bash", "/usr/local/bin/entrypoint.sh"]');
+    expect(files["docker-compose.yml"]).toContain('entrypoint: ["/bin/bash", "/usr/local/bin/entrypoint.sh"]');
+  });
+
   it("documents every service in SETUP.md", () => {
     for (const s of manifest.services) expect(files["SETUP.md"]).toContain(`| ${s.name} | ${s.port} |`);
   });

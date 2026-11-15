@@ -36,6 +36,8 @@ export function renderCompose(m: Manifest): string {
     "      dockerfile: Dockerfile",
     `    container_name: ${m.containerName}`,
     "    restart: unless-stopped",
+    "    # Invoke via /bin/bash so the Windows bind-mounted entrypoint.sh never needs +x.",
+    '    entrypoint: ["/bin/bash", "/usr/local/bin/entrypoint.sh"]',
     "    network_mode: service:tailscale",
     "    depends_on:",
     "      - tailscale",
