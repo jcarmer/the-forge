@@ -16,7 +16,8 @@ import { listSessionFiles, defaultSources } from "../sessions/parse.js";
 import { executeTask } from "../worker/runner.js";
 import { loadTaskRecords, taskStorePath, upsertTaskRecord } from "../worker/taskStore.js";
 import { buildPackage, pushRepo, readPackageApiDts, scanPackages, scanRepos, togglePackageLink } from "../packages/hub.js";
-import { summarizeAllRepos } from "../git/repoSummary.js";
+import { summarizeAllRepos, summarizeRepo } from "../git/repoSummary.js";
+import { RepoActionError } from "../git/repoResolve.js";
 import { handleRepoRoute, matchRepoRoute } from "../git/repoActions.js";
 import type { ForgeState, ServiceStatus, TaskRecord } from "../state/forgeState.js";
 
@@ -247,10 +248,21 @@ export function createForgeRequestHandler(ctx: ForgeApiContext, hub: ForgeStateH
       }
 
       if (req.method === "GET" && pathname === "/api/git/repos") {
-        const repos = await summarizeAllRepos(ctx.projectsRoot, {
+        // ?repo=<name> summarises just that repo (after an action); ?refresh=1 is an explicit user refresh that
+        // bypasses the per-repo `git fetch` throttle and the gh cache.
+        const opts = {
           mainBranch: ctx.manifest.git.mainBranch,
           integrationBranch: ctx.manifest.git.integrationBranch,
-        });
+          refresh: url.searchParams.get("refresh") === "1",
+        };
+        const one = url.searchParams.get("repo");
+        let repos;
+        try {
+          repos = one !== null ? [await summarizeRepo(ctx.projectsRoot, one, opts)] : await summarizeAllRepos(ctx.projectsRoot, opts);
+        } catch (e) {
+          if (e instanceof RepoActionError) return sendJson(res, e.status, { ok: false, error: e.message, detail: e.message });
+          throw e;
+        }
         return sendJson(res, 200, { repos, generatedAt: new Date().toISOString() });
       }
 

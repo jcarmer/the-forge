@@ -10,5 +10,7 @@
     "skipLibCheck": true,
     "types": ["node"]
   },
-  "include": ["src", "test", "sandbox.config.ts"]
+  "include": ["src", "test", "sandbox.config.ts"],
+  // Tests of web/src helpers use the web bundler's module resolution: typechecked by tsconfig.webtests.json.
+  "exclude": ["test/gitRepoDetail.test.ts", "test/gitTileChips.test.ts"]
 }

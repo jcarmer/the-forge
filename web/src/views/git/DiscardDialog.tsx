@@ -64,12 +64,13 @@ export function DiscardDialog({
           {files.map((f) => {
             const kept = plan.kept.includes(f.path);
             const deleted = plan.deleted.includes(f.path);
+            const nested = plan.nested.includes(f.path);
             return (
               <li key={f.path} style={{ overflowWrap: "anywhere" }}>
                 {f.oldPath ? `${f.oldPath} → ${f.path}` : f.path}{" "}
                 <span style={{ color: kept ? "#7aa5aa" : "#ff9db3" }}>
                   ({statusWord(f)}
-                  {kept ? ": will be KEPT" : deleted ? ": will be DELETED" : ": will be restored"})
+                  {nested ? ": nested git repository, always KEPT" : kept ? ": will be KEPT" : deleted ? ": will be DELETED" : ": will be restored"})
                 </span>
               </li>
             );
@@ -84,7 +85,10 @@ export function DiscardDialog({
           hint="Untracked files are not in git yet. They stay on disk unless you tick this."
         />
       )}
-      {plan.nothingToDo && <Text muted>Nothing would be discarded: only untracked files are listed. Tick "Also delete untracked files" to remove them.</Text>}
+      {plan.nested.length > 0 && <Text muted>Nested git repositories have their own history and are never deleted here; remove them by hand if you really mean to.</Text>}
+      {plan.nothingToDo && (
+        <Text muted>{plan.kept.every((p) => plan.nested.includes(p)) ? "Nothing would be discarded." : 'Nothing would be discarded: only untracked files are listed. Tick "Also delete untracked files" to remove them.'}</Text>
+      )}
       <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
         <Text muted>
           Type <code style={{ fontFamily: MONO, color: "#ff9db3" }}>{phrase}</code> (or just the repo name <code style={{ fontFamily: MONO }}>{repoName}</code>) to enable the button:

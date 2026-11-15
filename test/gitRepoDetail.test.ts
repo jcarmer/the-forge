@@ -3,8 +3,10 @@ import { classifyDiffLine, parseDiff } from "../web/src/views/git/diffLines";
 import { deleteBranchesPhrase, discardPhrase, isConfirmed, planDiscard } from "../web/src/views/git/confirm";
 import {
   changesSignature,
+  DETACHED_BRANCH,
   groupBranches,
   guessBaseBranch,
+  isDetached,
   isSubset,
   pruneBranchSelection,
   pruneDeselected,
@@ -86,6 +88,12 @@ describe("confirm helpers", () => {
     expect(planDiscard([], true).nothingToDo).toBe(true);
     expect(planDiscard(files, false).send).toEqual(["a", "n"]);
   });
+  it("never deletes or sends nested repositories (untracked dir/ entries)", () => {
+    const files = [file("a"), file("inner/", { status: "?" }), file("n", { status: "?" })];
+    const plan = planDiscard(files, true);
+    expect(plan).toMatchObject({ tracked: ["a"], deleted: ["n"], kept: ["inner/"], nested: ["inner/"], send: ["a", "n"] });
+    expect(planDiscard([file("inner/", { status: "?" })], true)).toMatchObject({ nothingToDo: true, send: [] });
+  });
 });
 
 describe("file selection", () => {
@@ -130,11 +138,18 @@ describe("branch helpers", () => {
     branch("current-done", { merged: true, isCurrent: true }),
     branch("ai-work", { merged: true }),
   ];
-  it("separates unmerged, deletable merged and protected/current merged branches", () => {
+  it("separates main/integration, unmerged, deletable merged and current merged branches", () => {
     const g = groupBranches(bs);
-    expect(g.unmerged.map((b) => b.name)).toEqual(["main", "feat-open"]);
+    expect(g.base.map((b) => b.name)).toEqual(["main", "ai-work"]);
+    expect(g.unmerged.map((b) => b.name)).toEqual(["feat-open"]); // main is never "not merged into main"
     expect(g.deletable.map((b) => b.name)).toEqual(["feat-done"]);
-    expect(g.merged.map((b) => b.name)).toEqual(["current-done", "ai-work"]);
+    expect(g.merged.map((b) => b.name)).toEqual(["current-done"]);
+  });
+  it("uses the backend's configured main/integration branches instead of guessing", () => {
+    const g = groupBranches([branch("trunk"), branch("main", { merged: true }), branch("dev")], { mainBranch: "trunk", integrationBranch: "dev" });
+    expect(g.base.map((b) => b.name)).toEqual(["trunk", "dev"]);
+    expect(g.deletable.map((b) => b.name)).toEqual(["main"]);
+    expect(guessBaseBranch(null, [branch("main")], "trunk")).toBe("trunk");
   });
   it("prunes branch selection to what is still deletable", () => {
     expect([...pruneBranchSelection(new Set(["feat-done", "x"]), groupBranches(bs).deletable)]).toEqual(["feat-done"]);
@@ -152,6 +167,13 @@ describe("branch helpers", () => {
     expect(syncBlockedReason({ branch: "main", mainBranch: "main", dirty: false })).toMatch(/Pull/);
     expect(syncBlockedReason({ branch: "f", mainBranch: "main", dirty: true })).toMatch(/stash/);
     expect(syncBlockedReason({ branch: "f", mainBranch: "main", dirty: false })).toBeNull();
+  });
+  it("treats the backend's (detached) marker as no branch", () => {
+    expect(isDetached(DETACHED_BRANCH)).toBe(true);
+    expect(isDetached("")).toBe(true);
+    expect(isDetached("feat/x")).toBe(false);
+    expect(pullBlockedReason({ behind: 2, noUpstream: false, branch: "(detached)" })).toMatch(/Detached HEAD/);
+    expect(syncBlockedReason({ branch: "(detached)", mainBranch: "main", dirty: false })).toMatch(/Detached HEAD/);
   });
 });
 
@@ -203,5 +225,80 @@ describe("gitPost / gitGet", () => {
     stub(200, { branch: "m", files: [] });
     await expect(gitGet("x", "changes", { path: "a b" })).resolves.toEqual({ branch: "m", files: [] });
     expect(vi.mocked(fetch).mock.calls[0]?.[0]).toBe("/api/git/repo/x/changes?path=a+b");
+  });
+});
+
+import { isHttpUrl } from "../web/src/views/git/notice";
+import { coalesce, gitPollInterval, GIT_POLL_ACTIVE_MS, GIT_POLL_BACKGROUND_MS, mergeFullList, replaceRepo } from "../web/src/hooks/gitPolling";
+
+describe("isHttpUrl (ExternalLink renders an anchor only for these)", () => {
+  it("accepts http(s) and rejects other schemes", () => {
+    expect(isHttpUrl("https://github.com/o/r")).toBe(true);
+    expect(isHttpUrl("HTTP://x")).toBe(true);
+    expect(isHttpUrl("javascript:alert(1)")).toBe(false);
+    expect(isHttpUrl(" https://x")).toBe(false);
+    expect(isHttpUrl("data:text/html,x")).toBe(false);
+    expect(isHttpUrl(undefined)).toBe(false);
+  });
+});
+
+describe("git polling helpers", () => {
+  it("polls only while visible: fast with the Git tab open, slow for the counter otherwise", () => {
+    expect(gitPollInterval(false, true)).toBeNull();
+    expect(gitPollInterval(false, false)).toBeNull();
+    expect(gitPollInterval(true, true)).toBe(GIT_POLL_ACTIVE_MS);
+    expect(gitPollInterval(true, false)).toBe(GIT_POLL_BACKGROUND_MS);
+  });
+
+  it("coalesce: a reload requested mid-flight runs once more afterwards (merged), never dropped", async () => {
+    const runs: { refresh: boolean }[] = [];
+    const gates: (() => void)[] = [];
+    const run = coalesce<{ refresh: boolean }>(
+      (a) => {
+        runs.push(a);
+        return new Promise<void>((r) => gates.push(r));
+      },
+      (a, b) => ({ refresh: a.refresh || b.refresh }),
+    );
+    const p1 = run({ refresh: false });
+    const p2 = run({ refresh: false });
+    const p3 = run({ refresh: true });
+    expect(runs).toHaveLength(1);
+    gates[0]?.();
+    await p1;
+    await Promise.resolve();
+    expect(runs).toEqual([{ refresh: false }, { refresh: true }]);
+    let settled = false;
+    void p2.then(() => (settled = true));
+    await Promise.resolve();
+    expect(settled).toBe(false); // resolves only after the follow-up run
+    gates[1]?.();
+    await Promise.all([p2, p3]);
+    expect(runs).toHaveLength(2);
+  });
+
+  it("coalesce keeps working after a failing run", async () => {
+    let n = 0;
+    const run = coalesce<null>(async () => {
+      n++;
+      if (n === 1) throw new Error("boom");
+    }, (a) => a);
+    await run(null);
+    await run(null);
+    expect(n).toBe(2);
+  });
+
+  it("a slow full list does not overwrite a newer single-repo refresh", () => {
+    const prev = [{ name: "a", v: 2 }, { name: "b", v: 1 }];
+    const stamps = new Map([["a", 5]]);
+    expect(mergeFullList(prev, [{ name: "a", v: 1 }, { name: "b", v: 9 }], 3, stamps)).toEqual([{ name: "a", v: 2 }, { name: "b", v: 9 }]);
+    expect(mergeFullList(prev, [{ name: "a", v: 7 }], 6, stamps)).toEqual([{ name: "a", v: 7 }]);
+  });
+
+  it("replaceRepo replaces, appends or removes one repo", () => {
+    const list = [{ name: "a", v: 1 }, { name: "b", v: 1 }];
+    expect(replaceRepo(list, "b", { name: "b", v: 2 })).toEqual([{ name: "a", v: 1 }, { name: "b", v: 2 }]);
+    expect(replaceRepo(list, "c", { name: "c", v: 1 })).toHaveLength(3);
+    expect(replaceRepo(list, "a", null)).toEqual([{ name: "b", v: 1 }]);
   });
 });

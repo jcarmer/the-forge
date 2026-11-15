@@ -41,7 +41,8 @@ export function BranchesPanel({
   onSelectedChange: (s: Set<string>) => void;
   onRetry: () => void;
 }) {
-  const groups = data ? groupBranches(data.branches) : null;
+  const groups = data ? groupBranches(data.branches, data) : null;
+  const mainName = data?.mainBranch ?? "main";
   const [showMerged, setShowMerged] = useState(true);
   // Drop selections for branches that vanished or stopped being deletable after a refresh.
   useEffect(() => {
@@ -69,8 +70,24 @@ export function BranchesPanel({
         <Text muted>Loading branches...</Text>
       ) : (
         <>
+          {groups.base.length > 0 && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <strong style={{ fontSize: 13 }}>Main and integration branches ({groups.base.length})</strong>
+              <ul style={{ margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 8 }}>
+                {groups.base.map((b) => (
+                  <li key={b.name} style={{ listStyle: "none" }}>
+                    <BranchMeta b={b} />
+                  </li>
+                ))}
+              </ul>
+              <Text muted>Protected: never deleted here.</Text>
+            </div>
+          )}
+
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            <strong style={{ fontSize: 13 }}>Not merged into main ({groups.unmerged.length})</strong>
+            <strong style={{ fontSize: 13 }}>
+              Not merged into {mainName} ({groups.unmerged.length})
+            </strong>
             {groups.unmerged.length === 0 ? (
               <Text muted>None.</Text>
             ) : (
@@ -86,7 +103,9 @@ export function BranchesPanel({
 
           <div style={{ display: "flex", flexDirection: "column", gap: 8, borderTop: "1px solid rgb(11 127 134 / 0.4)", paddingTop: 10 }}>
             <Row>
-              <strong style={{ fontSize: 13 }}>Merged into main ({groups.deletable.length + groups.merged.length})</strong>
+              <strong style={{ fontSize: 13 }}>
+                Merged into {mainName} ({groups.deletable.length + groups.merged.length})
+              </strong>
               <Button variant="ghost" size="sm" aria-expanded={showMerged} onClick={() => setShowMerged((v) => !v)}>
                 {showMerged ? "Hide" : "Show"}
               </Button>
@@ -103,7 +122,7 @@ export function BranchesPanel({
                   {groups.merged.map((b) => (
                     <li key={b.name} style={{ listStyle: "none", opacity: 0.8 }}>
                       <BranchMeta b={b} />
-                      <Text muted>{b.isCurrent ? "Checked out: cannot be deleted." : "Protected branch: cannot be deleted here."}</Text>
+                      <Text muted>Checked out: cannot be deleted.</Text>
                     </li>
                   ))}
                 </ul>

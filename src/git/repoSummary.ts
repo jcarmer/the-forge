@@ -1,7 +1,8 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { z } from "zod";
-import { scanRepos } from "../packages/hub.js";
+import { resolve } from "node:path";
+import { listRepoNames, resolveRepo } from "./repoResolve.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -45,6 +46,10 @@ export interface SummaryOpts {
   integrationBranch: string;
   /** How long to reuse a `gh pr list` result per repo. Default 30s; 0 disables. */
   ghCacheMs?: number;
+  /** Minimum time between `git fetch` runs per repo. Default 60s; 0 fetches every time. */
+  fetchTtlMs?: number;
+  /** Explicit user refresh: fetch now and re-query gh, ignoring both caches. */
+  refresh?: boolean;
 }
 
 async function run(cmd: string, args: string[], cwd: string, timeout: number) {
@@ -66,11 +71,18 @@ async function run(cmd: string, args: string[], cwd: string, timeout: number) {
 const git = (dir: string, args: string[], timeout = 15_000) => run("git", ["-C", dir, ...args], dir, timeout);
 const lines = (s: string) => s.split("\n").map((l) => l.trim()).filter(Boolean);
 
+/** Per-repo caches, keyed by the resolved repo directory. */
 const ghCache = new Map<string, { at: number; prs: OpenPr[] | null }>();
+const lastFetch = new Map<string, number>();
 
-async function listOpenPrs(dir: string, cacheMs: number): Promise<OpenPr[] | null> {
+/** Drops cached `gh pr list` results for a repo (e.g. right after a PR was created) so the next summary re-queries. */
+export function invalidateRepoCaches(dir: string): void {
+  ghCache.delete(resolve(dir));
+}
+
+async function listOpenPrs(dir: string, cacheMs: number, bypass: boolean): Promise<OpenPr[] | null> {
   const hit = ghCache.get(dir);
-  if (cacheMs > 0 && hit && Date.now() - hit.at < cacheMs) return hit.prs;
+  if (!bypass && cacheMs > 0 && hit && Date.now() - hit.at < cacheMs) return hit.prs;
   const r = await run(
     "gh",
     ["pr", "list", "--state", "open", "--json", "number,title,url,headRefName,baseRefName,isDraft"],
@@ -90,21 +102,30 @@ async function listOpenPrs(dir: string, cacheMs: number): Promise<OpenPr[] | nul
   return prs;
 }
 
-/** Summarises one repo. Read-only apart from `git fetch`. Never throws for per-command failures. */
+/**
+ * Summarises one repo. Read-only apart from `git fetch` (at most once per `fetchTtlMs` unless `refresh`).
+ * Throws RepoActionError for an invalid or unknown repo name; never throws for per-command failures.
+ */
 export async function summarizeRepo(projectsRoot: string, repoName: string, opts: SummaryOpts): Promise<RepoSummary> {
-  const dir = `${projectsRoot.replace(/[\\/]+$/, "")}/${repoName}`;
+  const dir = resolveRepo(projectsRoot, repoName);
   const remotes = await git(dir, ["remote"]);
   const hasRemote = remotes.code === 0 && remotes.out.trim().length > 0;
   // Refresh remote-tracking refs so "behind" is accurate; failures (offline) just leave stale refs.
-  if (hasRemote) await git(dir, ["fetch", "--quiet"], 20_000);
+  const ttl = opts.fetchTtlMs ?? 60_000;
+  const last = lastFetch.get(dir);
+  if (hasRemote && (opts.refresh || ttl <= 0 || last === undefined || Date.now() - last >= ttl)) {
+    lastFetch.set(dir, Date.now());
+    await git(dir, ["fetch", "--quiet"], 20_000);
+  }
 
   const [branchRes, statusRes, revRes, stashRes, mainRef, prs] = await Promise.all([
     git(dir, ["symbolic-ref", "--short", "-q", "HEAD"]),
-    git(dir, ["status", "--porcelain"]),
+    // Same expansion as the detail page (getChanges), so the tile count matches its file list.
+    git(dir, ["status", "--porcelain", "--untracked-files=all"]),
     git(dir, ["rev-list", "--left-right", "--count", "@{u}...HEAD"]),
     git(dir, ["stash", "list"]),
     git(dir, ["rev-parse", "--verify", "-q", `refs/heads/${opts.mainBranch}`]),
-    listOpenPrs(dir, opts.ghCacheMs ?? 30_000),
+    listOpenPrs(dir, opts.ghCacheMs ?? 30_000, Boolean(opts.refresh)),
   ]);
 
   const detached = branchRes.code !== 0 || !branchRes.out.trim();
@@ -169,9 +190,9 @@ export function sortRepoSummaries<T extends { name: string; reasons: readonly st
   });
 }
 
-/** Discovers repos like `scanRepos` does and summarises each (in parallel), sorted for display. */
+/** Discovers repos (same rules as `resolveRepo`, no git commands) and summarises each in parallel, sorted for display. */
 export async function summarizeAllRepos(projectsRoot: string, opts: SummaryOpts): Promise<RepoSummary[]> {
-  const repos = await scanRepos(projectsRoot);
-  const all = await Promise.all(repos.map((r) => summarizeRepo(projectsRoot, r.name, opts)));
-  return sortRepoSummaries(all);
+  const settled = await Promise.allSettled(listRepoNames(projectsRoot).map((name) => summarizeRepo(projectsRoot, name, opts)));
+  // A repo removed between listing and summarising is simply skipped.
+  return sortRepoSummaries(settled.flatMap((r) => (r.status === "fulfilled" ? [r.value] : [])));
 }

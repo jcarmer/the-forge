@@ -1,6 +1,7 @@
 import { Badge, Button, Heading, Text } from "../../components";
 import type { GitLinks, GitRepoSummary } from "../../types";
 import { tileChips } from "../gitTileChips";
+import { DETACHED_BRANCH, isDetached } from "./selection";
 import { ExternalLink, Row } from "./ui";
 
 export function RepoHeader({
@@ -28,7 +29,7 @@ export function RepoHeader({
         <h2 style={{ margin: 0, fontWeight: 400 }}>
           <Heading>{repo.name}</Heading>
         </h2>
-        <Text muted>branch: {repo.branch || "(detached)"}</Text>
+        <Text muted>branch: {isDetached(repo.branch) ? `${DETACHED_BRANCH} HEAD` : repo.branch}</Text>
         <div style={{ flex: 1 }} />
         <Button variant="secondary" loading={refreshing} onClick={onRefresh}>
           Refresh

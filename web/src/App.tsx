@@ -25,7 +25,7 @@ export function App() {
   const dirtyPkgs = state?.packages.filter((p) => p.dirty || p.unpushed).length ?? 0;
   const runningTasks = state?.tasks.filter((t) => t.status === "running").length ?? 0;
 
-  const git = useGitRepos();
+  const git = useGitRepos({ active: tab === "git" });
   const gitAttention = git.repos ? attentionCount(git.repos) : 0;
 
   const tabs: { key: TabKey; title: string; content: ReactNode }[] = state

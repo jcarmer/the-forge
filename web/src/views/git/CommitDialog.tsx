@@ -123,6 +123,9 @@ export function CommitDialog({
         {state.status === "ok" && state.draft?.cached && <Badge variant="default">cached draft</Badge>}
         {state.status === "error" && <Text muted>AI draft unavailable: {state.detail}</Text>}
       </Row>
+      <Text muted>
+        The ticked files in the list decide what is committed, not their staged/unstaged state: Stage and Unstage only change git&apos;s index and do not limit this commit.
+      </Text>
       {subset && <Text muted>The AI draft describes all changes, not only the selected files; edit it if needed.</Text>}
       <Text muted>This never force-pushes. If the push fails, the commit is kept locally.</Text>
       <InlineError text={error} />

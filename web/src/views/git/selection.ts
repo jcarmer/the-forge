@@ -1,4 +1,12 @@
-import type { GitBranchInfo, GitChangedFile, GitLinks } from "../../types";
+import type { GitBranchInfo, GitBranchesResponse, GitChangedFile, GitLinks } from "../../types";
+
+/** What the backend reports as the branch when HEAD is detached. */
+export const DETACHED_BRANCH = "(detached)";
+
+/** True when there is no checked-out branch (detached HEAD, or unknown). Commit, PR, Pull and Sync need a branch. */
+export function isDetached(branch: string | null | undefined): boolean {
+  return !branch || branch === DETACHED_BRANCH;
+}
 
 /**
  * Selection is stored as the set of DESELECTED paths so every file is selected by default and files that appear
@@ -71,27 +79,38 @@ export function summarySignature(files: GitChangedFile[]): string {
   return files.map((f) => [f.path, f.oldPath ?? "", f.status, f.additions, f.deletions].join("|")).join("\n");
 }
 
-/** Branches that must never be offered for deletion (the backend refuses them as well). */
+/** Fallback protected names when the backend did not report its configured main/integration branches. */
 export const PROTECTED_BRANCHES = ["main", "master", "ai-work"];
 
+/** The configured main + integration branches (never offered for deletion; the backend refuses them as well). */
+export function protectedBranches(cfg?: Pick<GitBranchesResponse, "mainBranch" | "integrationBranch"> | null): string[] {
+  const names = [cfg?.mainBranch, cfg?.integrationBranch].filter((n): n is string => Boolean(n));
+  return names.length ? [...new Set(names)] : PROTECTED_BRANCHES;
+}
+
 export interface BranchGroups {
+  /** The main and integration branches: listed on their own, never "unmerged" or deletable. */
+  base: GitBranchInfo[];
   unmerged: GitBranchInfo[];
   /** Merged into main and safe to delete. */
   deletable: GitBranchInfo[];
-  /** Merged but current/protected: listed, not selectable. */
+  /** Merged but checked out: listed, not selectable. */
   merged: GitBranchInfo[];
 }
 
-export function groupBranches(branches: GitBranchInfo[]): BranchGroups {
+export function groupBranches(branches: GitBranchInfo[], cfg?: Pick<GitBranchesResponse, "mainBranch" | "integrationBranch"> | null): BranchGroups {
+  const prot = protectedBranches(cfg);
+  const base: GitBranchInfo[] = [];
   const unmerged: GitBranchInfo[] = [];
   const deletable: GitBranchInfo[] = [];
   const merged: GitBranchInfo[] = [];
   for (const b of branches) {
-    if (!b.merged) unmerged.push(b);
-    else if (b.isCurrent || PROTECTED_BRANCHES.includes(b.name)) merged.push(b);
+    if (prot.includes(b.name)) base.push(b);
+    else if (!b.merged) unmerged.push(b);
+    else if (b.isCurrent) merged.push(b);
     else deletable.push(b);
   }
-  return { unmerged, deletable, merged };
+  return { base, unmerged, deletable, merged };
 }
 
 /** Selected names that are still deletable (drops anything that vanished after a refresh). */
@@ -100,8 +119,12 @@ export function pruneBranchSelection(selected: ReadonlySet<string>, deletable: G
   return new Set([...selected].filter((n) => ok.has(n)));
 }
 
-/** Best guess for the PR base: from the compare URL (`.../compare/<base>...<head>`), else main/master, else "main". */
-export function guessBaseBranch(links: GitLinks | null, branches: GitBranchInfo[] | null): string {
+/**
+ * The PR base / main branch: the backend's configured main branch when known, else from the compare URL
+ * (`.../compare/<base>...<head>`), else main/master, else "main".
+ */
+export function guessBaseBranch(links: GitLinks | null, branches: GitBranchInfo[] | null, configuredMain?: string): string {
+  if (configuredMain) return configuredMain;
   const m = links?.compareUrl ? /\/compare\/(.+?)\.\.\./.exec(links.compareUrl) : null;
   if (m?.[1]) {
     try {
@@ -118,7 +141,7 @@ export function guessBaseBranch(links: GitLinks | null, branches: GitBranchInfo[
 
 /** Why Pull is unavailable, or null when it is allowed. */
 export function pullBlockedReason(repo: { behind: number; noUpstream: boolean; branch: string }): string | null {
-  if (!repo.branch) return "Detached HEAD: check out a branch first.";
+  if (isDetached(repo.branch)) return "Detached HEAD: check out a branch first.";
   if (repo.noUpstream) return "This branch has no upstream yet; push it first.";
   if (repo.behind <= 0) return "Already up to date: nothing to pull.";
   return null;
@@ -126,7 +149,7 @@ export function pullBlockedReason(repo: { behind: number; noUpstream: boolean; b
 
 /** Why Sync-from-main is unavailable, or null when it is allowed. */
 export function syncBlockedReason(opts: { branch: string; mainBranch: string; dirty: boolean }): string | null {
-  if (!opts.branch) return "Detached HEAD: check out a branch first.";
+  if (isDetached(opts.branch)) return "Detached HEAD: check out a branch first.";
   if (opts.branch === opts.mainBranch) return `You are on ${opts.mainBranch}; use Pull instead.`;
   if (opts.dirty) return "Commit or stash your uncommitted changes first (a conflicted merge could not be cleanly aborted otherwise).";
   return null;

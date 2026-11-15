@@ -1,5 +1,10 @@
 import type { GitActionResult } from "../../types";
 
+/** Only plain http(s) URLs may become clickable links (never `javascript:`, `data:` ...). */
+export function isHttpUrl(href: unknown): href is string {
+  return typeof href === "string" && /^https?:\/\//i.test(href);
+}
+
 export type NoticeKind = "success" | "error" | "warning";
 
 export interface NoticeData {

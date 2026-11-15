@@ -1,0 +1,10 @@
+{
+  // Typechecks the vitest files that import web/src helpers (extensionless imports, DOM types) with the web app's
+  // bundler resolution. Run via `npm run typecheck` (root tsconfig.json excludes these files).
+  "extends": "./web/tsconfig.json",
+  "compilerOptions": {
+    "types": ["node"],
+    "noEmit": true
+  },
+  "include": ["test/gitRepoDetail.test.ts", "test/gitTileChips.test.ts"]
+}

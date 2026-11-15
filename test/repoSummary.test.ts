@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { sortRepoSummaries, summarizeAllRepos, summarizeRepo } from "../src/git/repoSummary.js";
+import { invalidateRepoCaches, sortRepoSummaries, summarizeAllRepos, summarizeRepo } from "../src/git/repoSummary.js";
 
 const env = { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@t", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@t" };
 const git = (cwd: string, ...args: string[]) => execFileSync("git", args, { cwd, env, encoding: "utf8" });
@@ -152,6 +152,52 @@ describe("summarizeRepo", () => {
   });
 });
 
+describe("review regressions", () => {
+  it("counts every file in an untracked directory, like the detail page", async () => {
+    const { repo } = makeRepo("udir");
+    mkdirSync(join(repo, "newdir"));
+    writeFileSync(join(repo, "newdir", "a.txt"), "a");
+    writeFileSync(join(repo, "newdir", "b.txt"), "b");
+    expect((await summarizeRepo(projects, "udir", opts)).changedFiles).toBe(2);
+  });
+
+  it.each(["..", "../x", "a/b", ".hidden", "", "nope"])("rejects repo name %j like resolveRepo", async (name) => {
+    await expect(summarizeRepo(projects, name, opts)).rejects.toThrow(/invalid repo name|repo not found/);
+  });
+
+  it("throttles git fetch per repo; refresh bypasses the throttle", async () => {
+    const { origin } = makeRepo("throttle");
+    const ttl = { ...opts, fetchTtlMs: 60_000 };
+    expect((await summarizeRepo(projects, "throttle", ttl)).behind).toBe(0); // fetches (first time)
+    const other = join(root, "throttle-other");
+    git(root, "clone", "-q", origin, other);
+    writeFileSync(join(other, "b.txt"), "2");
+    git(other, "add", "-A");
+    git(other, "commit", "-qm", "upstream work");
+    git(other, "push", "-q", "origin", "main");
+    expect((await summarizeRepo(projects, "throttle", ttl)).behind).toBe(0); // within the TTL: no fetch
+    expect((await summarizeRepo(projects, "throttle", { ...ttl, refresh: true })).behind).toBe(1);
+  });
+
+  it("re-queries gh after invalidateRepoCaches or with refresh", async () => {
+    makeRepo("inval");
+    const cached = { ...opts, ghCacheMs: 60_000 };
+    const pr = { number: 3, title: "New", url: "https://github.com/o/r/pull/3", headRefName: "f", baseRefName: "main", isDraft: false };
+    try {
+      process.env.FAKE_GH_JSON = "[]";
+      expect((await summarizeRepo(projects, "inval", cached)).openPrs).toEqual([]);
+      process.env.FAKE_GH_JSON = JSON.stringify([pr]);
+      expect((await summarizeRepo(projects, "inval", cached)).openPrs).toEqual([]); // cached
+      expect((await summarizeRepo(projects, "inval", { ...cached, refresh: true })).openPrs).toEqual([pr]);
+      process.env.FAKE_GH_JSON = "[]";
+      invalidateRepoCaches(join(projects, "inval"));
+      expect((await summarizeRepo(projects, "inval", cached)).openPrs).toEqual([]);
+    } finally {
+      delete process.env.FAKE_GH_JSON;
+    }
+  });
+});
+
 describe("summarizeAllRepos", () => {
   it("discovers repos and sorts attention-needing ones first", async () => {
     const all = await summarizeAllRepos(projects, opts);
@@ -160,6 +206,15 @@ describe("summarizeAllRepos", () => {
     const firstClean = all.findIndex((r) => r.reasons.length === 0);
     expect(all.slice(firstClean).every((r) => r.reasons.length === 0)).toBe(true);
     expect(names.indexOf("clean")).toBeGreaterThanOrEqual(firstClean);
+  });
+
+  it("skips hidden, non-repo and invalidly named directories", async () => {
+    mkdirSync(join(projects, "not-a-repo"));
+    mkdirSync(join(projects, ".hidden-repo", ".git"), { recursive: true });
+    const names = (await summarizeAllRepos(projects, opts)).map((r) => r.name);
+    expect(names).not.toContain("not-a-repo");
+    expect(names).not.toContain(".hidden-repo");
+    expect(names).toContain("clean");
   });
 });
 

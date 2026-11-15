@@ -13,7 +13,7 @@ import { PrDialog } from "./git/PrDialog";
 import { RepoHeader } from "./git/RepoHeader";
 import { SummaryPanel } from "./git/SummaryPanel";
 import { noticeFrom, type NoticeData } from "./git/notice";
-import { guessBaseBranch, isSubset, pruneDeselected, selectAll, selectNone, selectedFiles, summarySignature, toggleSelected } from "./git/selection";
+import { guessBaseBranch, isDetached, isSubset, pruneDeselected, selectAll, selectNone, selectedFiles, summarySignature, toggleSelected } from "./git/selection";
 import { Notice, type ActionCtx } from "./git/ui";
 import { useAiSummary } from "./git/useAiSummary";
 
@@ -23,9 +23,17 @@ const NO_FILES: GitChangedFile[] = [];
 
 /**
  * Repo detail page: changed files (with diffs), AI summary, commit/PR/discard actions and extra tools.
- * `onChanged` lets the parent refresh its repo summary after any action or refresh.
+ * `onChanged` lets the parent refresh this repo's summary after any action (`refresh: true` for an explicit Refresh).
  */
-export default function GitRepoDetail({ repo, onBack, onChanged }: { repo: GitRepoSummary; onBack: () => void; onChanged?: () => void }) {
+export default function GitRepoDetail({
+  repo,
+  onBack,
+  onChanged,
+}: {
+  repo: GitRepoSummary;
+  onBack: () => void;
+  onChanged?: (opts?: { refresh?: boolean }) => void;
+}) {
   const name = repo.name;
   const data = useGitRepoData(name);
   const [busy, setBusy] = useState<string | null>(null);
@@ -84,13 +92,14 @@ export default function GitRepoDetail({ repo, onBack, onChanged }: { repo: GitRe
   const selected = selectedFiles(allFiles, deselected);
   const currentBranchInfo = data.branches?.branches.find((b) => b.isCurrent);
   const branch = repo.branch;
-  const mainBranch = guessBaseBranch(data.links, data.branches?.branches ?? null);
+  const detached = isDetached(branch);
+  const mainBranch = guessBaseBranch(data.links, data.branches?.branches ?? null, data.branches?.mainBranch);
   const closeDialog = () => setDialog(null);
 
   const refreshAll = () => {
     setNotice(null);
     void data.refresh();
-    onChanged?.();
+    onChanged?.({ refresh: true });
   };
 
   return (
@@ -131,7 +140,7 @@ export default function GitRepoDetail({ repo, onBack, onChanged }: { repo: GitRe
           ctx={ctx}
           selectedCount={selected.length}
           totalCount={allFiles.length}
-          hasBranch={Boolean(branch)}
+          hasBranch={!detached}
           onCommit={() => setDialog({ kind: "commit" })}
           onPr={() => setDialog({ kind: "pr" })}
           onDiscard={() =>
@@ -167,10 +176,10 @@ export default function GitRepoDetail({ repo, onBack, onChanged }: { repo: GitRe
         <Text muted>Changes and branches are loaded when you open this page and after every action; use Refresh to reload.</Text>
       </div>
 
-      {dialog?.kind === "commit" && (
+      {dialog?.kind === "commit" && !detached && (
         <CommitDialog repoName={name} branch={branch} upstream={currentBranchInfo?.upstream} selected={selected} subset={isSubset(allFiles, selected)} ctx={ctx} onClose={closeDialog} />
       )}
-      {dialog?.kind === "pr" && (
+      {dialog?.kind === "pr" && !detached && (
         <PrDialog repoName={name} branch={branch} defaultBase={mainBranch} uncommitted={allFiles.length} ahead={repo.ahead} ctx={ctx} onClose={closeDialog} />
       )}
       {dialog?.kind === "discard" && <DiscardDialog repoName={name} files={dialog.files} scope={dialog.scope} ctx={ctx} onClose={closeDialog} />}

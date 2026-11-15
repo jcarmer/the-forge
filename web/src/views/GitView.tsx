@@ -4,6 +4,7 @@ import type { GitRepoSummary } from "../types";
 import type { GitReposState } from "../hooks/useGitRepos";
 import GitRepoDetail from "./GitRepoDetail";
 import { branchNames, isClean, tileChips } from "./gitTileChips";
+import { DETACHED_BRANCH, isDetached } from "./git/selection";
 
 function RepoTile({ repo, onSelect }: { repo: GitRepoSummary; onSelect: () => void }) {
   const chips = tileChips(repo);
@@ -26,7 +27,7 @@ function RepoTile({ repo, onSelect }: { repo: GitRepoSummary; onSelect: () => vo
       <Pane padding={12}>
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           <Heading>{repo.name}</Heading>
-          <Text muted>branch: {repo.branch || "(detached)"}</Text>
+          <Text muted>branch: {isDetached(repo.branch) ? `${DETACHED_BRANCH} HEAD` : repo.branch}</Text>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
             {chips.map((c) => (
               <Badge key={c.key} variant={c.variant}>
@@ -56,7 +57,7 @@ function RepoTile({ repo, onSelect }: { repo: GitRepoSummary; onSelect: () => vo
 }
 
 export function GitView({ git }: { git: GitReposState }) {
-  const { repos, error, loading, reload, generatedAt } = git;
+  const { repos, error, loading, reload, reloadRepo, generatedAt } = git;
   const [selectedRepo, setSelectedRepo] = useState<string | null>(null);
 
   const selected = selectedRepo && repos ? repos.find((r) => r.name === selectedRepo) : undefined;
@@ -65,11 +66,8 @@ export function GitView({ git }: { git: GitReposState }) {
       <GitRepoDetail
         key={selected.name}
         repo={selected}
-        onChanged={() => void reload()}
-        onBack={() => {
-          setSelectedRepo(null);
-          void reload();
-        }}
+        onChanged={(opts) => void reloadRepo(selected.name, opts)}
+        onBack={() => setSelectedRepo(null)}
       />
     );
   }
@@ -91,7 +89,7 @@ export function GitView({ git }: { git: GitReposState }) {
         {generatedAt && <Text muted>updated {new Date(generatedAt).toLocaleTimeString()}</Text>}
         <div style={{ flex: 1 }} />
         {error && <Badge variant="danger">Error: {error}</Badge>}
-        <Button variant="ghost" size="sm" loading={loading} onClick={() => void reload()}>
+        <Button variant="ghost" size="sm" loading={loading} onClick={() => void reload({ refresh: true })}>
           Refresh
         </Button>
       </div>

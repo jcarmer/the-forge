@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties, type InputHTMLAttributes, type ReactNode, type TextareaHTMLAttributes } from "react";
 import { Badge, Button, Heading, Pane, Text, type Variant } from "../../components";
 import type { GitActionResult } from "../../types";
-import type { NoticeData, NoticeKind } from "./notice";
+import { isHttpUrl, type NoticeData, type NoticeKind } from "./notice";
 
 export const MONO = "ui-monospace, SFMono-Regular, Menlo, monospace";
 export const ACCENT = "#00f3ff";
@@ -94,7 +94,9 @@ export function Section({ title, right, children }: { title: string; right?: Rea
   );
 }
 
+/** Opens an http(s) URL in a new tab; anything else is rendered as plain text, never as a link. */
 export function ExternalLink({ href, children }: { href: string; children: ReactNode }) {
+  if (!isHttpUrl(href)) return <span style={{ fontSize: 13, overflowWrap: "anywhere" }}>{children}</span>;
   return (
     <a href={href} target="_blank" rel="noreferrer noopener" style={{ color: ACCENT, fontSize: 13, textDecoration: "underline", overflowWrap: "anywhere" }}>
       {children} <span aria-hidden="true">↗</span>

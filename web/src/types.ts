@@ -192,7 +192,12 @@ export interface GitBranchInfo {
 
 /** GET /branches */
 export interface GitBranchesResponse {
+  /** Checked-out branch, or "(detached)". */
   current: string;
+  /** Configured main branch (optional for older servers). */
+  mainBranch?: string;
+  /** Configured integration branch (optional for older servers). */
+  integrationBranch?: string;
   branches: GitBranchInfo[];
 }
 

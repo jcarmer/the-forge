@@ -27,7 +27,7 @@ export function PrDialog({
   const [draft, setDraft] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const touched = useRef(false);
-  const { state, load } = useDraft(repoName);
+  const { state, load } = useDraft(repoName, "pr");
   const drafting = state.status === "loading";
 
   useEffect(() => {

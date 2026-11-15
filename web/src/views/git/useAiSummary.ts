@@ -57,8 +57,11 @@ export interface DraftState {
   detail?: string;
 }
 
-/** Fetches an AI draft of the commit message / PR title+body. Call `load()` on mount; `load(true)` regenerates. */
-export function useDraft(repoName: string) {
+/**
+ * Fetches an AI draft of the commit message / PR title+body. Call `load()` on mount; `load(true)` regenerates.
+ * `purpose: "pr"` asks the backend to describe the branch's commits (what the PR contains) rather than uncommitted changes.
+ */
+export function useDraft(repoName: string, purpose: "commit" | "pr" = "commit") {
   const [state, setState] = useState<DraftState>({ status: "idle" });
   const ctl = useRef<AbortController | null>(null);
   useEffect(() => () => ctl.current?.abort(), []);
@@ -70,7 +73,7 @@ export function useDraft(repoName: string) {
       ctl.current = c;
       setState((s) => ({ ...s, status: "loading", detail: undefined }));
       try {
-        const r = await gitPost<GitDraftMessage>(repoName, "draft-message", regenerate ? { regenerate: true } : {}, c.signal);
+        const r = await gitPost<GitDraftMessage>(repoName, "draft-message", { for: purpose, ...(regenerate ? { regenerate: true } : {}) }, c.signal);
         if (c.signal.aborted) return null;
         if (r.ok) {
           setState({ status: "ok", draft: r });
@@ -82,7 +85,7 @@ export function useDraft(repoName: string) {
       }
       return null;
     },
-    [repoName],
+    [repoName, purpose],
   );
 
   return { state, load };

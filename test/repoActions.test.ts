@@ -180,6 +180,14 @@ describe("over HTTP", () => {
     expect((await raw("POST", "/api/git/repo/web/stage", "[1,2]")).status).toBe(400);
   });
 
+  it("summarises a single validated repo via /api/git/repos?repo=", async () => {
+    const one = await raw("GET", "/api/git/repos?repo=web");
+    expect(one.status).toBe(200);
+    expect((one.json.repos as { name: string }[]).map((r) => r.name)).toEqual(["web"]);
+    expect((await raw("GET", "/api/git/repos?repo=..%2Fweb")).status).toBe(400);
+    expect((await raw("GET", "/api/git/repos?repo=nope&refresh=1")).status).toBe(404);
+  });
+
   it("serves changes", async () => {
     const r = await raw("GET", "/api/git/repo/web/changes");
     expect(r.status).toBe(200);
@@ -613,5 +621,220 @@ describe("AI summary and draft (fake Ollama)", () => {
     const d = await draftMessage(repo, { model: "q", mainBranch: "main", fetchImpl: f.impl });
     expect(d).toMatchObject({ ok: true, source: "commits", prTitle: "Add huge" });
     expect(f.calls[0].body.prompt).toContain("Add the huge file");
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// Review regressions
+// ---------------------------------------------------------------------------------------------
+
+describe("branch names cannot become force-push refspecs", () => {
+  let repo: string;
+  let origin: string;
+  let other: string;
+  beforeAll(() => {
+    ({ repo, origin } = makeRepo("plus"));
+    other = otherClone(origin, "plus");
+    // Someone else advances origin/main; the local main is now behind it.
+    writeFileSync(join(other, "theirs.txt"), "theirs\n");
+    git(other, "add", "-A");
+    git(other, "commit", "-qm", "theirs");
+    git(other, "push", "-q", "origin", "main");
+  });
+
+  it.each(["+main", "+", "@", "a:b", "a*b", "a?b", "a[b", "a\\b", "a~1", "a^b", "-x", "a b"])("create-pr rejects head/base %j", async (name) => {
+    const tip = git(origin, "rev-parse", "main");
+    expect((await call("plus", "create-pr", { title: "t", head: name, base: "main" })).status).toBe(400);
+    expect((await call("plus", "create-pr", { title: "t", base: name })).status).toBe(400);
+    expect((await call("plus", "delete-branches", { branches: [name], confirm: "DELETE BRANCHES plus" })).status).toBe(400);
+    expect(git(origin, "rev-parse", "main")).toBe(tip);
+  });
+
+  it("commit-push on a checked-out branch named +main pushes refs/heads/+main, never force-pushes main", async () => {
+    const tip = git(origin, "rev-parse", "main");
+    git(repo, "checkout", "-q", "-b", "+main");
+    writeFileSync(join(repo, "mine.txt"), "mine\n");
+    const r = await call("plus", "commit-push", { message: "mine" });
+    expect(git(origin, "rev-parse", "main")).toBe(tip); // origin/main was NOT rewound
+    expect(r).toMatchObject({ status: 200, body: { ok: true, pushed: true } });
+    expect(git(origin, "rev-parse", "refs/heads/+main").trim()).toBe(git(repo, "rev-parse", "HEAD").trim());
+  });
+});
+
+describe("staged renames and deletions", () => {
+  let repo: string;
+  beforeAll(() => {
+    ({ repo } = makeRepo("rnm", { "a.txt": "one\n", "b.txt": "two\n", "c.txt": "three\n" }));
+  });
+
+  it("stages and unstages a staged rename and a staged deletion", async () => {
+    git(repo, "mv", "b.txt", "b2.txt");
+    git(repo, "rm", "-q", "c.txt");
+    expect(await call("rnm", "stage", { files: ["b2.txt", "c.txt"] })).toMatchObject({ status: 200, body: { ok: true } });
+    expect(await call("rnm", "unstage", { files: ["b2.txt", "c.txt"] })).toMatchObject({ status: 200, body: { ok: true } });
+    const by = Object.fromEntries((await getChanges(repo)).files.map((f) => [f.path, f]));
+    expect(by["c.txt"]).toMatchObject({ status: "D", staged: false });
+    expect(by["b.txt"]).toMatchObject({ status: "D", staged: false });
+    expect(by["b2.txt"]).toMatchObject({ status: "?" });
+    expect(await call("rnm", "stage", { files: ["b.txt", "b2.txt", "c.txt"] })).toMatchObject({ status: 200, body: { ok: true } });
+    const after = Object.fromEntries((await getChanges(repo)).files.map((f) => [f.path, f]));
+    expect(after["b2.txt"]).toMatchObject({ status: "R", oldPath: "b.txt", staged: true });
+    expect(after["c.txt"]).toMatchObject({ status: "D", staged: true });
+  });
+
+  it("commits a subset that contains a staged rename and a staged deletion", async () => {
+    writeFileSync(join(repo, "a.txt"), "not selected\n");
+    const r = await call("rnm", "commit-push", { message: "rename + delete", files: ["b2.txt", "c.txt"] });
+    expect(r).toMatchObject({ status: 200, body: { ok: true } });
+    expect(git(repo, "show", "--name-status", "--format=", "-M", "HEAD").trim().split("\n").sort()).toEqual(["D\tc.txt", "R100\tb.txt\tb2.txt"]);
+    expect((await getChanges(repo)).files.map((f) => f.path)).toEqual(["a.txt"]);
+  });
+
+  it("commits a subset with an unstaged deletion (rm without git rm)", async () => {
+    rmSync(join(repo, "b2.txt"));
+    const r = await call("rnm", "commit-push", { message: "delete b2", files: ["b2.txt"] });
+    expect(r).toMatchObject({ status: 200, body: { ok: true } });
+    expect(git(repo, "show", "--name-status", "--format=", "HEAD").trim()).toBe("D\tb2.txt");
+  });
+});
+
+describe("per-file discard recovery", () => {
+  let repo: string;
+  beforeAll(() => {
+    ({ repo } = makeRepo("rec"));
+  });
+
+  it("recovery ref of a per-file discard applies while other files stay dirty", async () => {
+    writeFileSync(join(repo, "a.txt"), "keep me dirty\n");
+    writeFileSync(join(repo, "b.txt"), "discard me\n");
+    const r = await call("rec", "discard", { confirm: "DISCARD rec", files: ["b.txt"] });
+    const body = r.body as { recoveryRef: string; discarded: string[] };
+    expect(r.status).toBe(200);
+    expect(body.discarded).toEqual(["b.txt"]);
+    expect(readFileSync(join(repo, "b.txt"), "utf8")).toBe("two\n");
+    git(repo, "stash", "apply", body.recoveryRef);
+    expect(readFileSync(join(repo, "b.txt"), "utf8")).toBe("discard me\n");
+    expect(readFileSync(join(repo, "a.txt"), "utf8")).toBe("keep me dirty\n");
+    git(repo, "checkout", "-q", "--", "a.txt", "b.txt");
+  });
+
+  it("keeps the staged version of a partly-staged file in the recovery ref", async () => {
+    writeFileSync(join(repo, "a.txt"), "other dirty\n");
+    writeFileSync(join(repo, "b.txt"), "staged\n");
+    git(repo, "add", "b.txt");
+    writeFileSync(join(repo, "b.txt"), "staged\nplus worktree\n");
+    const r = await call("rec", "discard", { confirm: "DISCARD rec", files: ["b.txt"] });
+    const ref = (r.body as { recoveryRef: string }).recoveryRef;
+    git(repo, "stash", "apply", "--index", ref);
+    expect(readFileSync(join(repo, "b.txt"), "utf8")).toBe("staged\nplus worktree\n");
+    expect(git(repo, "show", ":b.txt")).toBe("staged\n");
+    expect(readFileSync(join(repo, "a.txt"), "utf8")).toBe("other dirty\n");
+    git(repo, "reset", "-q");
+    git(repo, "checkout", "-q", "--", "a.txt", "b.txt");
+  });
+
+  it("recovery ref of an untracked-only per-file discard applies while tracked files stay dirty", async () => {
+    writeFileSync(join(repo, "a.txt"), "still dirty\n");
+    mkdirSync(join(repo, "nd"));
+    writeFileSync(join(repo, "nd", "u.txt"), "untracked\n");
+    writeFileSync(join(repo, "keep.txt"), "kept\n");
+    const r = await call("rec", "discard", { confirm: "DISCARD rec", files: ["nd/u.txt"], includeUntracked: true });
+    const body = r.body as { recoveryRef: string; discarded: string[] };
+    expect(body.discarded).toEqual(["nd/u.txt"]);
+    expect(existsSync(join(repo, "nd", "u.txt"))).toBe(false);
+    git(repo, "stash", "apply", body.recoveryRef);
+    expect(readFileSync(join(repo, "nd", "u.txt"), "utf8")).toBe("untracked\n");
+    expect(readFileSync(join(repo, "a.txt"), "utf8")).toBe("still dirty\n");
+    expect(readFileSync(join(repo, "keep.txt"), "utf8")).toBe("kept\n");
+  });
+
+  it("whole-repo discard recovery still restores everything", async () => {
+    writeFileSync(join(repo, "b.txt"), "b edit\n");
+    const r = await call("rec", "discard", { confirm: "DISCARD rec", includeUntracked: true });
+    const ref = (r.body as { recoveryRef: string }).recoveryRef;
+    expect((await getChanges(repo)).files).toEqual([]);
+    git(repo, "stash", "apply", ref);
+    expect(readFileSync(join(repo, "a.txt"), "utf8")).toBe("still dirty\n");
+    expect(readFileSync(join(repo, "b.txt"), "utf8")).toBe("b edit\n");
+    expect(readFileSync(join(repo, "nd", "u.txt"), "utf8")).toBe("untracked\n");
+  });
+});
+
+describe("discard of nested repositories", () => {
+  let repo: string;
+  beforeAll(() => {
+    ({ repo } = makeRepo("nest"));
+    const inner = join(repo, "inner");
+    mkdirSync(inner);
+    git(inner, "init", "-q");
+    writeFileSync(join(inner, "x.txt"), "x\n");
+    writeFileSync(join(repo, "u.txt"), "u\n");
+  });
+
+  it("refuses a per-file discard that names a nested repository and changes nothing", async () => {
+    expect((await getChanges(repo)).files.map((f) => f.path)).toContain("inner/");
+    writeFileSync(join(repo, "a.txt"), "dirty\n");
+    const r = await call("nest", "discard", { confirm: "DISCARD nest", files: ["inner/", "a.txt", "u.txt"], includeUntracked: true });
+    expect(r.status).toBe(400);
+    expect((r.body as { detail: string }).detail).toContain("inner/");
+    expect(existsSync(join(repo, "inner", "x.txt"))).toBe(true);
+    expect(readFileSync(join(repo, "a.txt"), "utf8")).toBe("dirty\n");
+    expect(existsSync(join(repo, "u.txt"))).toBe(true);
+  });
+
+  it("whole-repo discard keeps nested repositories and does not report them as discarded", async () => {
+    const r = await call("nest", "discard", { confirm: "DISCARD nest", includeUntracked: true });
+    const body = r.body as { discarded: string[]; keptNestedRepos: string[]; detail: string };
+    expect(r.status).toBe(200);
+    expect(body.discarded.sort()).toEqual(["a.txt", "u.txt"]);
+    expect(body.keptNestedRepos).toEqual(["inner/"]);
+    expect(body.detail).toContain("inner/");
+    expect(existsSync(join(repo, "inner", "x.txt"))).toBe(true);
+  });
+});
+
+describe("detached HEAD guards", () => {
+  beforeAll(() => {
+    const { repo } = makeRepo("det");
+    git(repo, "checkout", "-q", "--detach");
+    writeFileSync(join(repo, "a.txt"), "dirty\n");
+  });
+
+  it.each(["commit-push", "create-pr", "pull", "sync-main"])("%s answers 400 on a detached HEAD", async (action) => {
+    const r = await call("det", action, { message: "m", title: "t" });
+    expect(r.status).toBe(400);
+    expect((r.body as { detail: string }).detail).toMatch(/detached/i);
+  });
+});
+
+describe("branches response", () => {
+  it("exposes the configured main/integration branch names (the UI groups by them instead of guessing)", async () => {
+    const { repo } = makeRepo("brm");
+    git(repo, "checkout", "-q", "-b", "feat");
+    const r = (await call("brm", "branches")).body as { current: string; mainBranch: string; integrationBranch: string; branches: { name: string }[] };
+    expect(r).toMatchObject({ current: "feat", mainBranch: "main", integrationBranch: "ai-work" });
+    expect(r.branches.map((b) => b.name).sort()).toEqual(["feat", "main"]);
+  });
+});
+
+describe("draft-message for a PR prefers commit material", () => {
+  it("uses commits ahead of main even when the tree is dirty", async () => {
+    clearAiCache();
+    const { repo } = makeRepo("dpr");
+    git(repo, "checkout", "-q", "-b", "feat/dpr");
+    writeFileSync(join(repo, "f.txt"), "f\n");
+    git(repo, "add", "-A");
+    git(repo, "commit", "-qm", "Add the f file");
+    writeFileSync(join(repo, "a.txt"), "uncommitted\n");
+    const calls: string[] = [];
+    const impl: Fetcher = async (_url, init) => {
+      calls.push((JSON.parse(init.body) as { prompt: string }).prompt);
+      return { ok: true, status: 200, json: async () => ({ response: JSON.stringify({ commitMessage: "c", prTitle: "p", prBody: "b" }) }) };
+    };
+    const pr = await handleRepoRoute(cfg(impl), { method: "POST", name: "dpr", action: "draft-message", query: new URLSearchParams(), body: { for: "pr" } });
+    expect(pr.body).toMatchObject({ ok: true, source: "commits" });
+    expect(calls[0]).toContain("Add the f file");
+    const commit = await handleRepoRoute(cfg(impl), { method: "POST", name: "dpr", action: "draft-message", query: new URLSearchParams(), body: {} });
+    expect(commit.body).toMatchObject({ ok: true, source: "changes" });
   });
 });

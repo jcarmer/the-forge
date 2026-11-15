@@ -6,17 +6,20 @@
  * - Repos are resolved ONLY by a bare directory name discovered under `projectsRoot`; no caller paths.
  * - All git runs via execFile with argument arrays (no shell), GIT_TERMINAL_PROMPT=0 and literal pathspecs.
  * - File arguments must be paths that `git status` currently reports as changed (and stay inside the repo).
- * - Branch names are validated with `git check-ref-format --branch`.
+ * - Branch names are validated with `git check-ref-format --branch` plus stricter rules (no leading `+`, `:`, globs),
+ *   and pushes always use a fully-qualified `refs/heads/<b>:refs/heads/<b>` refspec.
  * - Never force-push, never `reset --hard`, never `branch -D`; discard requires a typed confirm string
  *   and returns a recovery stash commit.
  */
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, lstatSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import { existsSync, lstatSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, normalize, relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
-import { openPullRequest } from "./pullRequest.js";
+import { openPullRequestAsync } from "./pullRequest.js";
+import { RepoActionError, resolveRepo } from "./repoResolve.js";
+import { invalidateRepoCaches } from "./repoSummary.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -97,42 +100,7 @@ function withLock<T>(dir: string, fn: () => Promise<T>): Promise<T> {
 // Validation
 // ---------------------------------------------------------------------------------------------
 
-/** Expected, client-caused failure: reported as HTTP 400 (or `status`) with `detail`. */
-export class RepoActionError extends Error {
-  constructor(
-    message: string,
-    readonly status = 400,
-  ) {
-    super(message);
-  }
-}
-
-const REPO_NAME_RE = /^[A-Za-z0-9_][A-Za-z0-9._-]{0,99}$/;
-
-/**
- * Resolves a repo by bare name to `<projectsRoot>/<name>`. Only top-level, non-hidden directories (or symlinks to
- * directories, like /projects/the-forge) containing `.git` are accepted, exactly like `scanRepos` discovers them.
- */
-export function resolveRepo(projectsRoot: string, name: unknown): string {
-  if (typeof name !== "string" || !REPO_NAME_RE.test(name) || name.includes("..")) {
-    throw new RepoActionError("invalid repo name");
-  }
-  const root = resolve(projectsRoot);
-  if (!existsSync(root)) throw new RepoActionError(`repo not found: ${name}`, 404);
-  const entry = readdirSync(root, { withFileTypes: true }).find((e) => e.name === name);
-  if (!entry) throw new RepoActionError(`repo not found: ${name}`, 404);
-  const dir = join(root, name);
-  let isDir = entry.isDirectory();
-  if (!isDir && entry.isSymbolicLink()) {
-    try {
-      isDir = statSync(dir).isDirectory();
-    } catch {
-      isDir = false;
-    }
-  }
-  if (!isDir || !existsSync(join(dir, ".git"))) throw new RepoActionError(`repo not found: ${name}`, 404);
-  return dir;
-}
+export { RepoActionError, resolveRepo } from "./repoResolve.js";
 
 /** Throws unless `p` is a plain relative path inside the repo (no absolute paths, `..`, NUL, or pathspec tricks). */
 export function assertInsideRepo(dir: string, p: unknown): string {
@@ -160,15 +128,59 @@ async function validateChangedFiles(dir: string, files: unknown): Promise<{ file
     if (!hit) throw new RepoActionError(`not a changed file: ${f}`);
     if (!picked.includes(hit)) picked.push(hit);
   }
-  // For renames, both sides must be part of any stage/commit/restore so the rename stays whole.
-  const paths = [...new Set(picked.flatMap((c) => (c.oldPath ? [c.path, c.oldPath] : [c.path])))];
-  return { files: picked, paths };
+  // For renames, both sides must be part of any commit/restore so the rename stays whole.
+  return { files: picked, paths: pathsOf(picked) };
 }
 
-/** Validates a branch name with `git check-ref-format --branch`. */
+/** Each entry's path plus, for renames, its old path. */
+function pathsOf(entries: GitChangedFile[]): string[] {
+  return [...new Set(entries.flatMap((c) => (c.oldPath ? [c.path, c.oldPath] : [c.path])))];
+}
+
+function lexists(dir: string, p: string): boolean {
+  try {
+    lstatSync(join(dir, p));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** The subset of `paths` currently present in the index (any stage). */
+async function inIndex(dir: string, paths: string[]): Promise<Set<string>> {
+  if (!paths.length) return new Set();
+  const r = await git(dir, ["ls-files", "-z", "--cached", "--", ...paths]);
+  return new Set(r.out.split("\0").filter(Boolean));
+}
+
+/**
+ * Paths that `git add -A -- <paths>` can be given: an entry's own path if it still exists in the worktree or the
+ * index. A staged deletion or the old side of a staged rename exists in neither (its removal is already staged),
+ * and naming it would make `git add` fail with "pathspec did not match". Old rename paths are never added: a new
+ * untracked file at that path is a separate entry the user did not select.
+ */
+async function addablePaths(dir: string, entries: GitChangedFile[]): Promise<string[]> {
+  const own = [...new Set(entries.map((e) => e.path))];
+  const indexed = await inIndex(dir, own);
+  return own.filter((p) => indexed.has(p) || lexists(dir, p));
+}
+
+/**
+ * Validates a branch name with `git check-ref-format --branch`, plus extra rules so a name can never be read as
+ * something else by git: a leading `+` would make `git push origin +x` a FORCE push, `:` separates refspecs, glob
+ * and revision characters (`* ? [ \ ~ ^`) and a bare `@` (HEAD) are refused too.
+ */
 export async function assertBranchName(dir: string, name: unknown, field = "branch"): Promise<string> {
-  if (typeof name !== "string" || !name || name.length > 255 || name.startsWith("-") || name.includes("@{") || /[\0\s]/.test(name)) {
-    throw new RepoActionError(`invalid ${field} name`);
+  if (
+    typeof name !== "string" ||
+    !name ||
+    name.length > 255 ||
+    /^[-+]/.test(name) ||
+    name === "@" ||
+    name.includes("@{") ||
+    /[\0\s:*?[\\~^]/.test(name)
+  ) {
+    throw new RepoActionError(`invalid ${field} name${typeof name === "string" && name ? `: ${name}` : ""}`);
   }
   const r = await git(dir, ["check-ref-format", "--branch", name]);
   if (r.code !== 0 || r.out.trim() !== name) throw new RepoActionError(`invalid ${field} name: ${name}`);
@@ -557,10 +569,20 @@ export interface GitDraftResult {
   detail?: string;
 }
 
-/** AI-drafted commit message + PR title/body (user edits them before use). Never throws for model failures. */
-export async function draftMessage(dir: string, opts: OllamaOpts & { mainBranch: string; regenerate?: boolean }): Promise<GitDraftResult> {
+/**
+ * AI-drafted commit message + PR title/body (user edits them before use). Never throws for model failures.
+ * `prefer: "commits"` (the PR dialog) describes the branch's commits not yet on main, falling back to uncommitted
+ * changes; the default (commit dialog) describes uncommitted changes first.
+ */
+export async function draftMessage(
+  dir: string,
+  opts: OllamaOpts & { mainBranch: string; regenerate?: boolean; prefer?: "changes" | "commits" },
+): Promise<GitDraftResult> {
   const empty = { model: opts.model, commitMessage: "", prTitle: "", prBody: "", cached: false };
-  const mat = (await collectChangeMaterial(dir)) ?? (await collectCommitMaterial(dir, opts.mainBranch));
+  const mat =
+    opts.prefer === "commits"
+      ? ((await collectCommitMaterial(dir, opts.mainBranch)) ?? (await collectChangeMaterial(dir)))
+      : ((await collectChangeMaterial(dir)) ?? (await collectCommitMaterial(dir, opts.mainBranch)));
   if (!mat) return { ok: false, ...empty, detail: "Nothing to describe: no uncommitted changes and no commits ahead of the main branch." };
   const key = `draft:${dir}:${opts.model}:${mat.hash}`;
   const hit = aiCache.get(key) as Omit<GitDraftResult, "cached"> | undefined;
@@ -611,7 +633,16 @@ export interface GitBranchInfo {
   upstream?: string;
 }
 
-export async function listBranches(dir: string, mainBranch: string): Promise<{ current: string; branches: GitBranchInfo[] }> {
+export interface GitBranchesResult {
+  current: string;
+  /** The configured main branch (PR base, "merged" means merged into this). */
+  mainBranch: string;
+  /** The configured integration branch (protected from deletion like main). */
+  integrationBranch: string;
+  branches: GitBranchInfo[];
+}
+
+export async function listBranches(dir: string, mainBranch: string, integrationBranch = mainBranch): Promise<GitBranchesResult> {
   const current = await currentBranch(dir);
   const base = await mainBase(dir, mainBranch);
   const [refs, mergedRes] = await Promise.all([
@@ -652,7 +683,7 @@ export async function listBranches(dir: string, mainBranch: string): Promise<{ c
       ...(upstream ? { upstream } : {}),
     });
   }
-  return { current: current ?? "(detached)", branches };
+  return { current: current ?? "(detached)", mainBranch, integrationBranch, branches };
 }
 
 export interface GitStashEntry {
@@ -747,24 +778,37 @@ export interface GitActionResult {
 async function pushBranch(dir: string, branch: string): Promise<{ ok: boolean; detail: string; setUpstream: boolean }> {
   const up = await upstreamOf(dir, branch);
   if (up && !up.startsWith("origin/")) return { ok: false, detail: `upstream ${up} is not on origin; push it manually`, setUpstream: false };
-  // Plain (non-force) push; to the existing upstream branch, or create origin/<branch> and track it.
-  const args = up ? ["push", "origin", `refs/heads/${branch}:refs/heads/${up.slice("origin/".length)}`] : ["push", "-u", "origin", branch];
+  // Plain (non-force) push with a fully-qualified refspec, so no branch name can be read as `+force` or `src:dst`;
+  // to the existing upstream branch, or create origin/<branch> and track it.
+  const dst = up ? up.slice("origin/".length) : branch;
+  const args = ["push", ...(up ? [] : ["-u"]), "origin", `refs/heads/${branch}:refs/heads/${dst}`];
   const r = await git(dir, args, { timeout: NET_TIMEOUT });
   return { ok: r.code === 0, detail: r.code === 0 ? `pushed ${branch}${up ? "" : " (upstream set to origin)"}` : `push failed: ${msg(r, "unknown error")}`, setUpstream: !up };
 }
 
-/** Stages (all, or only `files`), commits, then pushes (`-u origin <branch>` when there is no upstream). Never forces. */
+/**
+ * Stages (all, or only `files`), commits, then pushes (`-u origin <branch>` when there is no upstream). Never forces.
+ * With `files`, exactly those entries are committed (`git commit -- <paths>`), whatever is staged.
+ */
 export function commitAndPush(dir: string, body: { message?: unknown; files?: unknown }): Promise<GitActionResult> {
   return withLock(dir, async () => {
     const message = optString(body.message, "message", 20_000)?.trim();
     if (!message) throw new RepoActionError("commit message is required");
     const branch = await requireBranch(dir);
     let paths: string[] | undefined;
-    if (body.files !== undefined && body.files !== null) paths = (await validateChangedFiles(dir, body.files)).paths;
-    else if (!(await getChanges(dir)).files.length) throw new RepoActionError("nothing to commit");
+    let addPaths: string[] = [];
+    if (body.files !== undefined && body.files !== null) {
+      const v = await validateChangedFiles(dir, body.files);
+      paths = v.paths;
+      addPaths = await addablePaths(dir, v.files);
+    } else if (!(await getChanges(dir)).files.length) throw new RepoActionError("nothing to commit");
 
-    const add = await git(dir, paths ? ["add", "-A", "--", ...paths] : ["add", "-A"]);
-    if (add.code !== 0) throw new RepoActionError(`git add failed: ${msg(add, "unknown error")}`);
+    // Staged deletions / old rename paths are not passed to `git add` (they are already staged and exist nowhere),
+    // but they ARE passed to `git commit -- <paths>`, which matches them against HEAD.
+    if (!paths || addPaths.length) {
+      const add = await git(dir, paths ? ["add", "-A", "--", ...addPaths] : ["add", "-A"]);
+      if (add.code !== 0) throw new RepoActionError(`git add failed: ${msg(add, "unknown error")}`);
+    }
     // With a file subset, `--only` semantics commit just those paths even if other files were staged earlier.
     const commit = await git(dir, paths ? ["commit", "-m", message, "--", ...paths] : ["commit", "-m", message], { timeout: 120_000 });
     if (commit.code !== 0) {
@@ -788,56 +832,87 @@ export function commitAndPush(dir: string, body: { message?: unknown; files?: un
 export function createPr(
   dir: string,
   body: { title?: unknown; body?: unknown; base?: unknown; head?: unknown; draft?: unknown },
-  defaults: { base: string },
+  defaults: { base: string; ghTimeoutMs?: number },
 ): Promise<GitActionResult> {
   return withLock(dir, async () => {
     const title = optString(body.title, "title", 256)?.trim();
     if (!title) throw new RepoActionError("title is required");
     const prBody = optString(body.body, "body", 65_536) ?? "";
     const draft = optBool(body.draft, "draft") ?? false;
-    const head = await assertBranchName(dir, body.head ?? (await requireBranch(dir)), "head");
+    const current = await requireBranch(dir);
+    const head = await assertBranchName(dir, body.head ?? current, "head");
     const base = await assertBranchName(dir, body.base ?? defaults.base, "base");
     if (head === base) throw new RepoActionError(`head and base are the same branch (${head}); pick a different base`);
     if ((await git(dir, ["rev-parse", "--verify", "-q", `refs/heads/${head}`])).code !== 0) throw new RepoActionError(`no local branch named ${head}`);
     if (!(await hasOrigin(dir))) throw new RepoActionError("no origin remote to open a pull request against");
     const push = await pushBranch(dir, head);
     if (!push.ok) return { ok: false, detail: push.detail, pushed: false };
-    const pr = openPullRequest(dir, { head, base, title, body: prBody, draft });
+    const pr = await openPullRequestAsync(dir, { head, base, title, body: prBody, draft }, { timeoutMs: defaults.ghTimeoutMs });
+    // The tiles cache `gh pr list` per repo: drop it so the new PR shows up on the next refresh.
+    invalidateRepoCaches(dir);
     return { ok: pr.ok, detail: redact(pr.detail), ...(pr.url ? { url: pr.url } : {}), pushed: true };
   });
 }
 
-/**
- * Builds a dangling stash-shaped commit holding the current tracked changes (index + worktree) and, if given, the
- * listed untracked files, WITHOUT touching the worktree or the stash list. `git stash apply <ref>` restores it.
- */
-async function createRecoveryRef(dir: string, branch: string, untracked: string[]): Promise<string | undefined> {
-  if (!(await hasHead(dir))) return undefined;
-  const created = await git(dir, ["stash", "create", `forge discard recovery on ${branch}`]);
-  const w = created.code === 0 ? created.out.trim() : "";
-  if (!untracked.length) return w || undefined;
+/** An untracked `dir/` entry that is its own git repository (git status shows nested repos as one directory entry). */
+function isNestedRepo(dir: string, entry: GitChangedFile): boolean {
+  return entry.status === "?" && entry.path.endsWith("/") && existsSync(join(dir, entry.path, ".git"));
+}
 
+/**
+ * Builds a dangling stash-shaped commit holding ONLY the given tracked entries (index + worktree state) and untracked
+ * files, WITHOUT touching the real index, the worktree or the stash list. Every other path is HEAD's version, so
+ * `git stash apply <ref>` restores exactly what was discarded and works while other files are still dirty.
+ *
+ * Shape (like `git stash -u`): W (worktree tree) with parents HEAD, I (index tree) and, if any, U (untracked only).
+ */
+async function createRecoveryRef(dir: string, branch: string, tracked: GitChangedFile[], untracked: string[]): Promise<string | undefined> {
+  if (!(await hasHead(dir))) return undefined;
   const tmp = mkdtempSync(join(tmpdir(), "forge-recovery-"));
   try {
     const env = { GIT_INDEX_FILE: join(tmp, "index") };
-    const add = await git(dir, ["add", "--", ...untracked], { env });
-    if (add.code !== 0) return w || undefined;
-    const utree = await git(dir, ["write-tree"], { env });
-    if (utree.code !== 0) return w || undefined;
-    const u = await git(dir, ["commit-tree", utree.out.trim(), "-m", `untracked files on ${branch}`]);
-    if (u.code !== 0) return w || undefined;
-    let i: string;
-    let wtree: string;
-    if (w) {
-      i = (await git(dir, ["rev-parse", `${w}^2`])).out.trim();
-      wtree = (await git(dir, ["rev-parse", `${w}^{tree}`])).out.trim();
-    } else {
-      const headTree = (await git(dir, ["rev-parse", "HEAD^{tree}"])).out.trim();
-      i = (await git(dir, ["commit-tree", headTree, "-p", "HEAD", "-m", `index on ${branch}`])).out.trim();
-      wtree = headTree;
+    const out = async (args: string[], e: Record<string, string> = env): Promise<string | null> => {
+      const r = await git(dir, args, { env: e });
+      return r.code === 0 ? r.out.trim() : null;
+    };
+    const paths = pathsOf(tracked);
+
+    // I: HEAD, with the targeted paths replaced by their (stage 0) entries from the real index.
+    if ((await out(["read-tree", "HEAD"])) === null) return undefined;
+    if (paths.length) {
+      const staged = await git(dir, ["ls-files", "-z", "--stage", "--", ...paths]);
+      if (staged.code !== 0) return undefined;
+      const cacheinfo: string[] = [];
+      for (const rec of staged.out.split("\0")) {
+        const m = /^(\d+) ([0-9a-f]+) 0\t(.+)$/s.exec(rec);
+        if (m) cacheinfo.push("--cacheinfo", `${m[1]},${m[2]},${m[3]}`);
+      }
+      if ((await out(["update-index", "--force-remove", "--", ...paths])) === null) return undefined;
+      if (cacheinfo.length && (await out(["update-index", "--add", ...cacheinfo])) === null) return undefined;
     }
-    const full = await git(dir, ["commit-tree", wtree, "-p", "HEAD", "-p", i, "-p", u.out.trim(), "-m", `On ${branch}: forge discard recovery`]);
-    return full.code === 0 ? full.out.trim() : w || undefined;
+    const itree = await out(["write-tree"]);
+    if (!itree) return undefined;
+    const i = await out(["commit-tree", itree, "-p", "HEAD", "-m", `index on ${branch}: forge discard recovery`]);
+    if (!i) return undefined;
+
+    // W: I plus the targeted paths' worktree content (deleted paths removed).
+    const present = paths.filter((p) => lexists(dir, p));
+    const gone = paths.filter((p) => !lexists(dir, p));
+    if (present.length && (await out(["update-index", "--add", "--", ...present])) === null) return undefined;
+    if (gone.length && (await out(["update-index", "--force-remove", "--", ...gone])) === null) return undefined;
+    const wtree = await out(["write-tree"]);
+    if (!wtree) return undefined;
+
+    const parents = ["-p", "HEAD", "-p", i];
+    if (untracked.length) {
+      const uenv = { GIT_INDEX_FILE: join(tmp, "untracked-index") };
+      if ((await out(["add", "--", ...untracked], uenv)) === null) return undefined;
+      const utree = await out(["write-tree"], uenv);
+      const u = utree && (await out(["commit-tree", utree, "-m", `untracked files on ${branch}: forge discard recovery`]));
+      if (!u) return undefined;
+      parents.push("-p", u);
+    }
+    return (await out(["commit-tree", wtree, ...parents, "-m", `On ${branch}: forge discard recovery`])) ?? undefined;
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }
@@ -851,38 +926,57 @@ export function discardChanges(dir: string, repoName: string, body: { confirm?: 
     if (!(await hasHead(dir))) throw new RepoActionError("nothing has been committed yet, so there is nothing to restore to");
     const branch = (await currentBranch(dir)) ?? "HEAD";
 
-    let targets: GitChangedFile[];
     const perFile = body.files !== undefined && body.files !== null;
-    if (perFile) targets = (await validateChangedFiles(dir, body.files)).files;
-    else targets = (await getChanges(dir)).files;
+    const targets = perFile ? (await validateChangedFiles(dir, body.files)).files : (await getChanges(dir)).files;
     const tracked = targets.filter((f) => f.status !== "?");
     const untracked = targets.filter((f) => f.status === "?");
-    const toClean = includeUntracked ? untracked : [];
+    // Nested repositories have their own history: never deleted from here (that would need `git clean -ff`).
+    const nested = includeUntracked ? untracked.filter((f) => isNestedRepo(dir, f)).map((f) => f.path) : [];
+    if (perFile && nested.length) {
+      throw new RepoActionError(
+        `refusing to delete nested git repositor${nested.length === 1 ? "y" : "ies"} (they have their own history and are not in the recovery snapshot): ${nested.join(", ")}. Deselect ${nested.length === 1 ? "it" : "them"}, or remove ${nested.length === 1 ? "it" : "them"} by hand.`,
+      );
+    }
+    const toClean = includeUntracked ? untracked.filter((f) => !nested.includes(f.path)) : [];
     const skipped = includeUntracked ? [] : untracked.map((f) => f.path);
     if (!tracked.length && !toClean.length) {
-      throw new RepoActionError(untracked.length ? "only untracked files match; set includeUntracked to remove them" : "nothing to discard");
+      throw new RepoActionError(
+        nested.length ? `nothing to discard: only nested git repositories match (${nested.join(", ")}), which are never deleted here` : untracked.length ? "only untracked files match; set includeUntracked to remove them" : "nothing to discard",
+      );
     }
 
-    const recoveryRef = await createRecoveryRef(dir, branch, toClean.map((f) => f.path).filter((p) => !p.endsWith("/")));
+    const recoveryRef = await createRecoveryRef(dir, branch, tracked, toClean.filter((f) => !f.path.endsWith("/")).map((f) => f.path));
     if (tracked.length) {
-      const paths = perFile ? [...new Set(tracked.flatMap((f) => (f.oldPath ? [f.path, f.oldPath] : [f.path])))] : ["."];
-      const r = await git(dir, ["restore", "--staged", "--worktree", "--", ...paths]);
+      const r = await git(dir, ["restore", "--staged", "--worktree", "--", ...(perFile ? pathsOf(tracked) : ["."])]);
       if (r.code !== 0) throw new RepoActionError(`git restore failed: ${msg(r, "unknown error")}`);
     }
     if (toClean.length) {
-      const r = perFile ? await git(dir, ["clean", "-f", "--", ...toClean.map((f) => f.path)]) : await git(dir, ["clean", "-fd"]);
+      // -d so untracked directory entries go too; never -ff (nested repositories were excluded above).
+      const r = perFile ? await git(dir, ["clean", "-fd", "--", ...toClean.map((f) => f.path)]) : await git(dir, ["clean", "-fd"]);
       if (r.code !== 0) throw new RepoActionError(`git clean failed: ${msg(r, "unknown error")}`);
     }
-    const discarded = [...tracked, ...toClean].map((f) => f.path);
+
+    // Report only what is really gone: tracked entries no longer changed, untracked entries no longer on disk.
+    const still = new Set((await getChanges(dir)).files.map((f) => f.path));
+    const discarded: string[] = [];
+    const notRemoved: string[] = [];
+    for (const f of tracked) (still.has(f.path) ? notRemoved : discarded).push(f.path);
+    for (const f of toClean) (lexists(dir, f.path) ? notRemoved : discarded).push(f.path);
+
+    const parts = [`Discarded ${discarded.length} file(s)`];
+    if (skipped.length) parts.push(`kept ${skipped.length} untracked file(s)`);
+    if (nested.length) parts.push(`kept nested git repositor${nested.length === 1 ? "y" : "ies"} ${nested.join(", ")}`);
+    if (notRemoved.length) parts.push(`could NOT discard ${notRemoved.join(", ")}`);
     const recovery = recoveryRef
       ? ` To undo, run: git stash apply ${recoveryRef} (a dangling commit, kept until git garbage-collects it, usually 2+ weeks).`
       : " No recovery snapshot could be made.";
-    const notCovered = toClean.some((f) => f.path.endsWith("/")) ? " Untracked directories that are nested repositories are not in the snapshot." : "";
     return {
-      ok: true,
-      detail: `Discarded ${discarded.length} file(s)${skipped.length ? `; kept ${skipped.length} untracked file(s)` : ""}.${recovery}${notCovered}`,
+      ok: notRemoved.length === 0,
+      detail: `${parts.join("; ")}.${recovery}`,
       discarded,
       skippedUntracked: skipped,
+      ...(nested.length ? { keptNestedRepos: nested } : {}),
+      ...(notRemoved.length ? { notRemoved } : {}),
       ...(recoveryRef ? { recoveryRef } : {}),
     };
   });
@@ -994,7 +1088,10 @@ export function stashPop(dir: string, body: { ref?: unknown }): Promise<GitActio
 
 export function stageFiles(dir: string, body: { files?: unknown }): Promise<GitActionResult> {
   return withLock(dir, async () => {
-    const { paths } = await validateChangedFiles(dir, body.files);
+    const { files } = await validateChangedFiles(dir, body.files);
+    // A staged deletion / staged rename's old path is already fully staged and exists nowhere to `git add`.
+    const paths = await addablePaths(dir, files);
+    if (!paths.length) return { ok: true, detail: "already staged", files: [] };
     const r = await git(dir, ["add", "-A", "--", ...paths]);
     if (r.code !== 0) throw new RepoActionError(`git add failed: ${msg(r, "unknown error")}`);
     return { ok: true, detail: `staged ${paths.length} path(s)`, files: paths };
@@ -1003,8 +1100,16 @@ export function stageFiles(dir: string, body: { files?: unknown }): Promise<GitA
 
 export function unstageFiles(dir: string, body: { files?: unknown }): Promise<GitActionResult> {
   return withLock(dir, async () => {
-    const { paths } = await validateChangedFiles(dir, body.files);
-    const r = (await hasHead(dir)) ? await git(dir, ["restore", "--staged", "--", ...paths]) : await git(dir, ["rm", "--cached", "-q", "--", ...paths]);
+    const { files } = await validateChangedFiles(dir, body.files);
+    // Only entries with staged changes can be unstaged; renames take their old path along so the rename stays whole.
+    const paths = pathsOf(files.filter((f) => f.staged || f.conflicted));
+    if (!paths.length) return { ok: true, detail: "nothing staged", files: [] };
+    let r: RunResult;
+    if (await hasHead(dir)) r = await git(dir, ["restore", "--staged", "--", ...paths]);
+    else {
+      const indexed = [...(await inIndex(dir, paths))];
+      r = indexed.length ? await git(dir, ["rm", "--cached", "-q", "--", ...indexed]) : { code: 0, out: "", err: "" };
+    }
     if (r.code !== 0) throw new RepoActionError(`unstage failed: ${msg(r, "unknown error")}`);
     return { ok: true, detail: `unstaged ${paths.length} path(s)`, files: paths };
   });
@@ -1098,7 +1203,7 @@ export async function handleRepoRoute(cfg: RepoRouteConfig, req: RepoRouteReques
       case "diff":
         return { status: 200, body: await getFileDiff(dir, req.query.get("path") ?? "") };
       case "branches":
-        return { status: 200, body: await listBranches(dir, cfg.mainBranch) };
+        return { status: 200, body: await listBranches(dir, cfg.mainBranch, cfg.integrationBranch) };
       case "stashes":
         return { status: 200, body: await listStashes(dir) };
       case "links":
@@ -1106,7 +1211,8 @@ export async function handleRepoRoute(cfg: RepoRouteConfig, req: RepoRouteReques
       case "summary":
         return { status: 200, body: await summarizeChanges(dir, ollama) };
       case "draft-message":
-        return { status: 200, body: await draftMessage(dir, { ...ollama, mainBranch: cfg.mainBranch }) };
+        if (b.for !== undefined && b.for !== "pr" && b.for !== "commit") throw new RepoActionError('for must be "pr" or "commit"');
+        return { status: 200, body: await draftMessage(dir, { ...ollama, mainBranch: cfg.mainBranch, prefer: b.for === "pr" ? "commits" : "changes" }) };
       case "commit-push":
         out = await commitAndPush(dir, b);
         break;
