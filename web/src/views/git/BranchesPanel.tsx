@@ -29,6 +29,7 @@ export function BranchesPanel({
   error,
   ctx,
   onDelete,
+  onCreatePr,
   selected,
   onSelectedChange,
   onRetry,
@@ -37,6 +38,7 @@ export function BranchesPanel({
   error?: string;
   ctx: ActionCtx;
   onDelete: (names: string[]) => void;
+  onCreatePr: (branch: string) => void;
   selected: ReadonlySet<string>;
   onSelectedChange: (s: Set<string>) => void;
   onRetry: () => void;
@@ -94,7 +96,12 @@ export function BranchesPanel({
               <ul style={{ margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 8 }}>
                 {groups.unmerged.map((b) => (
                   <li key={b.name} style={{ listStyle: "none" }}>
-                    <BranchMeta b={b} />
+                    <Row>
+                      <BranchMeta b={b} />
+                      <Button variant="secondary" size="sm" disabled={ctx.busy !== null} onClick={() => onCreatePr(b.name)}>
+                        Create PR...
+                      </Button>
+                    </Row>
                   </li>
                 ))}
               </ul>

@@ -73,6 +73,7 @@ beforeAll(() => {
 state="$FAKE_GH_STATE"
 jq=0; for a in "$@"; do [ "$a" = "--jq" ] && jq=1; done
 case "$1 $2" in
+  "repo edit") exit 0;;
   "pr list")
     if [ -f "$state" ]; then u=$(cat "$state"); if [ $jq = 1 ]; then echo "$u"; else echo "[{\\"url\\":\\"$u\\"}]"; fi
     else [ $jq = 1 ] || echo "[]"; fi; exit 0;;
@@ -313,6 +314,39 @@ describe("create-pr", () => {
     expect(creates).toHaveLength(1);
     expect(creates[0]).toContain("--draft");
     expect(creates[0]).toContain("--base main");
+  });
+});
+
+describe("commit-pr (new branch from main)", () => {
+  let repo: string;
+  beforeAll(() => {
+    ({ repo } = makeRepo("cpr"));
+    writeFileSync(join(repo, "keep.txt"), "keep\n");
+    writeFileSync(join(repo, "ship.txt"), "ship\n");
+  });
+  const body = { branch: "feature/ship", message: "add ship", title: "Add ship", files: ["ship.txt"] };
+
+  it("validates before touching anything", async () => {
+    expect((await call("cpr", "commit-pr", { ...body, branch: "main" })).status).toBe(400);
+    expect((await call("cpr", "commit-pr", { ...body, branch: "bad..name" })).status).toBe(400);
+    expect((await call("cpr", "commit-pr", { ...body, message: "" })).status).toBe(400);
+    expect((await call("cpr", "commit-pr", { ...body, files: ["nope.txt"] })).status).toBe(400);
+    expect(git(repo, "rev-parse", "--abbrev-ref", "HEAD").trim()).toBe("main");
+  });
+
+  it("commits only the chosen files to a new branch, opens the PR and returns to main", async () => {
+    const r = await call("cpr", "commit-pr", body);
+    expect(r).toMatchObject({ status: 200, body: { ok: true, url: "https://github.com/o/r/pull/9", committed: true } });
+    expect(git(repo, "rev-parse", "--abbrev-ref", "HEAD").trim()).toBe("main");
+    expect(git(repo, "ls-tree", "--name-only", "feature/ship").split("\n")).toContain("ship.txt");
+    expect(git(repo, "ls-tree", "--name-only", "feature/ship").split("\n")).not.toContain("keep.txt");
+    expect(git(repo, "ls-tree", "--name-only", "main").split("\n")).not.toContain("ship.txt");
+    expect(git(repo, "status", "--porcelain")).toContain("keep.txt");
+    expect(git(join(root, "cpr.git"), "rev-parse", "--verify", "feature/ship").trim()).toBeTruthy();
+  });
+
+  it("refuses a branch name that already exists", async () => {
+    expect((await call("cpr", "commit-pr", body)).status).toBe(400);
   });
 });
 

@@ -10,6 +10,7 @@ import { DeleteBranchesDialog } from "./git/DeleteBranchesDialog";
 import { DiscardDialog } from "./git/DiscardDialog";
 import { MorePanel } from "./git/MorePanel";
 import { PrDialog } from "./git/PrDialog";
+import { NewBranchPrDialog } from "./git/NewBranchPrDialog";
 import { RepoHeader } from "./git/RepoHeader";
 import { SummaryPanel } from "./git/SummaryPanel";
 import { noticeFrom, type NoticeData } from "./git/notice";
@@ -17,7 +18,7 @@ import { guessBaseBranch, isDetached, isSubset, pruneDeselected, selectAll, sele
 import { Notice, type ActionCtx } from "./git/ui";
 import { useAiSummary } from "./git/useAiSummary";
 
-type DialogState = { kind: "commit" } | { kind: "pr" } | { kind: "discard"; files: GitChangedFile[]; scope: string } | { kind: "delete-branches"; names: string[] } | null;
+type DialogState = { kind: "commit" } | { kind: "pr"; branch?: string } | { kind: "new-branch-pr" } | { kind: "discard"; files: GitChangedFile[]; scope: string } | { kind: "delete-branches"; names: string[] } | null;
 
 const NO_FILES: GitChangedFile[] = [];
 
@@ -141,8 +142,9 @@ export default function GitRepoDetail({
           selectedCount={selected.length}
           totalCount={allFiles.length}
           hasBranch={!detached}
+          onMain={branch === mainBranch}
           onCommit={() => setDialog({ kind: "commit" })}
-          onPr={() => setDialog({ kind: "pr" })}
+          onPr={() => setDialog(!detached && branch === mainBranch && selected.length > 0 ? { kind: "new-branch-pr" } : { kind: "pr" })}
           onDiscard={() =>
             setDialog({
               kind: "discard",
@@ -170,6 +172,7 @@ export default function GitRepoDetail({
           selected={branchSel}
           onSelectedChange={setBranchSel}
           onDelete={(names) => setDialog({ kind: "delete-branches", names })}
+          onCreatePr={(b) => setDialog({ kind: "pr", branch: b })}
           onRetry={() => void data.refresh()}
         />
 
@@ -179,8 +182,11 @@ export default function GitRepoDetail({
       {dialog?.kind === "commit" && !detached && (
         <CommitDialog repoName={name} branch={branch} upstream={currentBranchInfo?.upstream} selected={selected} subset={isSubset(allFiles, selected)} ctx={ctx} onClose={closeDialog} />
       )}
-      {dialog?.kind === "pr" && !detached && (
-        <PrDialog repoName={name} branch={branch} defaultBase={mainBranch} uncommitted={allFiles.length} ahead={repo.ahead} ctx={ctx} onClose={closeDialog} />
+      {dialog?.kind === "new-branch-pr" && !detached && (
+        <NewBranchPrDialog repoName={name} base={mainBranch} selected={selected} subset={isSubset(allFiles, selected)} ctx={ctx} onClose={closeDialog} />
+      )}
+      {dialog?.kind === "pr" && (!detached || dialog.branch) && (
+        <PrDialog repoName={name} branch={dialog.branch ?? branch} canDraft={!dialog.branch || dialog.branch === branch} defaultBase={mainBranch} uncommitted={dialog.branch && dialog.branch !== branch ? 0 : allFiles.length} ahead={dialog.branch && dialog.branch !== branch ? 0 : repo.ahead} ctx={ctx} onClose={closeDialog} />
       )}
       {dialog?.kind === "discard" && <DiscardDialog repoName={name} files={dialog.files} scope={dialog.scope} ctx={ctx} onClose={closeDialog} />}
       {dialog?.kind === "delete-branches" && <DeleteBranchesDialog repoName={name} branches={dialog.names} ctx={ctx} onClose={closeDialog} />}
