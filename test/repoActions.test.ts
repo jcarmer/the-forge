@@ -73,11 +73,15 @@ beforeAll(() => {
 state="$FAKE_GH_STATE"
 jq=0; for a in "$@"; do [ "$a" = "--jq" ] && jq=1; done
 case "$1 $2" in
-  "repo edit") exit 0;;
+  "repo edit") exit 1;;
   "pr list")
     if [ -f "$state" ]; then u=$(cat "$state"); if [ $jq = 1 ]; then echo "$u"; else echo "[{\\"url\\":\\"$u\\"}]"; fi
     else [ $jq = 1 ] || echo "[]"; fi; exit 0;;
   "pr create") echo "https://github.com/o/r/pull/9" > "$state"; echo "$*" >> "$state.creates"; echo "https://github.com/o/r/pull/9"; exit 0;;
+  "pr merge")
+    echo "$*" >> "$state.merges"
+    rm -f "$state"
+    echo "https://github.com/o/r/pull/9"; exit 0;;
 esac
 exit 1
 `,
@@ -834,7 +838,7 @@ describe("detached HEAD guards", () => {
     writeFileSync(join(repo, "a.txt"), "dirty\n");
   });
 
-  it.each(["commit-push", "create-pr", "pull", "sync-main"])("%s answers 400 on a detached HEAD", async (action) => {
+  it.each(["commit-push", "push", "create-pr", "pull", "sync-main"])("%s answers 400 on a detached HEAD", async (action) => {
     const r = await call("det", action, { message: "m", title: "t" });
     expect(r.status).toBe(400);
     expect((r.body as { detail: string }).detail).toMatch(/detached/i);
@@ -848,6 +852,55 @@ describe("branches response", () => {
     const r = (await call("brm", "branches")).body as { current: string; mainBranch: string; integrationBranch: string; branches: { name: string }[] };
     expect(r).toMatchObject({ current: "feat", mainBranch: "main", integrationBranch: "ai-work" });
     expect(r.branches.map((b) => b.name).sort()).toEqual(["feat", "main"]);
+  });
+});
+
+describe("push, merge-pr, and clean-merged quick actions", () => {
+  it("pushes unpushed commits on the current branch without needing a new commit", async () => {
+    const { repo, origin } = makeRepo("qpush");
+    git(repo, "checkout", "-q", "-b", "feat/quick");
+    writeFileSync(join(repo, "q.txt"), "q\n");
+    git(repo, "add", "-A");
+    git(repo, "commit", "-qm", "quick commit");
+    const r = await call("qpush", "push");
+    expect(r).toMatchObject({ status: 200, body: { ok: true, pushed: true } });
+    expect(git(origin, "rev-parse", "refs/heads/feat/quick").trim()).toBe(git(repo, "rev-parse", "HEAD").trim());
+  });
+
+  it("squash-merges a PR via gh pr merge --squash --delete-branch and cleans up the local head branch", async () => {
+    const { repo } = makeRepo("qmerge");
+    git(repo, "branch", "feat/merged-pr"); // at main => merged and deletable once on main
+    const r = await call("qmerge", "merge-pr", { number: 9, headBranch: "feat/merged-pr" });
+    expect(r).toMatchObject({
+      status: 200,
+      body: { ok: true, merged: true, url: "https://github.com/o/r/pull/9", cleanedBranch: "feat/merged-pr" },
+    });
+    const merges = readFileSync(`${process.env.FAKE_GH_STATE}.merges`, "utf8").trim().split("\n");
+    expect(merges.at(-1)).toBe("pr merge 9 --squash --delete-branch");
+    expect(git(repo, "branch", "--list", "feat/merged-pr").trim()).toBe("");
+  });
+
+  it("rejects invalid merge-pr parameters", async () => {
+    expect((await call("qmerge", "merge-pr", {})).status).toBe(400);
+    expect((await call("qmerge", "merge-pr", { number: -1 })).status).toBe(400);
+    expect((await call("qmerge", "merge-pr", { url: "https://evil.com/o/r/pull/1" })).status).toBe(400);
+  });
+
+  it("clean-merged deletes all merged non-protected branches in one click without deleting unmerged or protected ones", async () => {
+    const { repo } = makeRepo("qclean");
+    git(repo, "branch", "done-1");
+    git(repo, "branch", "done-2");
+    git(repo, "branch", "ai-work");
+    git(repo, "checkout", "-q", "-b", "unmerged");
+    writeFileSync(join(repo, "u.txt"), "u\n");
+    git(repo, "add", "-A");
+    git(repo, "commit", "-qm", "unmerged work");
+    git(repo, "checkout", "-q", "main");
+
+    const r = await call("qclean", "clean-merged");
+    expect(r).toMatchObject({ status: 200, body: { ok: true, detail: "cleaned 2 of 2 merged branch(es)" } });
+    const left = git(repo, "branch", "--format=%(refname:short)").trim().split("\n").sort();
+    expect(left).toEqual(["ai-work", "main", "unmerged"]);
   });
 });
 
@@ -872,3 +925,4 @@ describe("draft-message for a PR prefers commit material", () => {
     expect(commit.body).toMatchObject({ ok: true, source: "changes" });
   });
 });
+

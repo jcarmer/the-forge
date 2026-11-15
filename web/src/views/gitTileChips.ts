@@ -36,8 +36,16 @@ export function tileChips(r: GitRepoSummary): TileChip[] {
       variant: "secondary",
     });
   }
+  const mergedCount = r.mergedBranches?.length ?? 0;
+  if (mergedCount > 0) {
+    chips.push({
+      key: "merged",
+      label: `${mergedCount} merged branch${mergedCount === 1 ? "" : "es"}`,
+      variant: "default",
+    });
+  }
   if (r.stashes > 0) chips.push({ key: "stashes", label: `${r.stashes} stash${r.stashes === 1 ? "" : "es"}`, variant: "default" });
-  if (r.reasons.length === 0) chips.push({ key: "clean", label: "Clean", variant: "success" });
+  if (r.reasons.length === 0 && mergedCount === 0) chips.push({ key: "clean", label: "Clean", variant: "success" });
   return chips;
 }
 
@@ -48,3 +56,46 @@ export function isClean(r: GitRepoSummary): boolean {
 export function attentionCount(repos: GitRepoSummary[]): number {
   return repos.filter((r) => !isClean(r)).length;
 }
+
+export type RepoFilter = "all" | "attention" | "dirty" | "prs" | "clean";
+
+export function filterRepos(repos: GitRepoSummary[], filter: RepoFilter): GitRepoSummary[] {
+  switch (filter) {
+    case "attention":
+      return repos.filter((r) => !isClean(r) || (r.mergedBranches?.length ?? 0) > 0);
+    case "dirty":
+      return repos.filter((r) => r.dirty || r.changedFiles > 0);
+    case "prs":
+      return repos.filter((r) => (r.openPrs?.length ?? 0) > 0);
+    case "clean":
+      return repos.filter((r) => isClean(r) && (r.mergedBranches?.length ?? 0) === 0);
+    default:
+      return repos;
+  }
+}
+
+export interface TileQuickActionFlags {
+  canPull: boolean;
+  canPush: boolean;
+  canSyncMain: boolean;
+  canCreatePr: boolean;
+  canCleanMerged: boolean;
+}
+
+/** Pure helper determining which contextual quick-action buttons apply to a repo card on the overview. */
+export function tileQuickActions(r: GitRepoSummary): TileQuickActionFlags {
+  const detached = !r.branch || r.branch === "(detached)";
+  const mainBranch = r.mainBranch ?? "main";
+  const onMain = r.branch === mainBranch;
+  const hasOpenPrForBranch = Boolean(r.openPrs?.some((p) => p.headRefName === r.branch));
+  const branchUnmerged = r.openBranches.includes(r.branch);
+
+  return {
+    canPull: !detached && !r.noUpstream && r.behind > 0,
+    canPush: !detached && (r.ahead > 0 || (r.noUpstream && branchUnmerged)),
+    canSyncMain: !detached && !onMain && !r.dirty && r.changedFiles === 0,
+    canCreatePr: !detached && !hasOpenPrForBranch && ((!onMain && (r.ahead > 0 || branchUnmerged)) || (onMain && (r.dirty || r.changedFiles > 0))),
+    canCleanMerged: (r.mergedBranches?.length ?? 0) > 0,
+  };
+}
+

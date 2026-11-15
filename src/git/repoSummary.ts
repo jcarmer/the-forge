@@ -16,11 +16,22 @@ export const OpenPrSchema = z.object({
 });
 export type OpenPr = z.infer<typeof OpenPrSchema>;
 
+export const LastCommitSchema = z.object({
+  sha: z.string(),
+  subject: z.string(),
+  date: z.string(),
+});
+export type LastCommit = z.infer<typeof LastCommitSchema>;
+
 export const RepoSummarySchema = z.object({
   name: z.string(),
   path: z.string(),
   /** Current checked-out branch, or "(detached)". */
   branch: z.string(),
+  /** Configured main branch (PR base, "merged" means merged into this). */
+  mainBranch: z.string(),
+  /** Configured integration branch (protected from deletion like main). */
+  integrationBranch: z.string(),
   dirty: z.boolean(),
   /** Uncommitted files, including untracked. */
   changedFiles: z.number(),
@@ -30,6 +41,10 @@ export const RepoSummarySchema = z.object({
   noUpstream: z.boolean(),
   /** Local branches not fully merged into the main branch (main itself excluded; includes the current branch if unmerged). */
   openBranches: z.array(z.string()),
+  /** Local branches fully merged into main that are safe to delete with `git branch -d` (excludes main, integration, and current branch). */
+  mergedBranches: z.array(z.string()),
+  /** Latest commit on HEAD, or null for an unborn branch. */
+  lastCommit: LastCommitSchema.nullable(),
   /** null = unknown (gh unavailable or failed). */
   openPrs: z.array(OpenPrSchema).nullable(),
   ghAvailable: z.boolean(),
@@ -118,19 +133,26 @@ export async function summarizeRepo(projectsRoot: string, repoName: string, opts
     await git(dir, ["fetch", "--quiet"], 20_000);
   }
 
-  const [branchRes, statusRes, revRes, stashRes, mainRef, prs] = await Promise.all([
+  const [branchRes, statusRes, revRes, stashRes, mainRef, logRes, prs] = await Promise.all([
     git(dir, ["symbolic-ref", "--short", "-q", "HEAD"]),
     // Same expansion as the detail page (getChanges), so the tile count matches its file list.
     git(dir, ["status", "--porcelain", "--untracked-files=all"]),
     git(dir, ["rev-list", "--left-right", "--count", "@{u}...HEAD"]),
     git(dir, ["stash", "list"]),
     git(dir, ["rev-parse", "--verify", "-q", `refs/heads/${opts.mainBranch}`]),
+    git(dir, ["log", "-1", "--format=%h%x00%s%x00%cI", "HEAD"]),
     listOpenPrs(dir, opts.ghCacheMs ?? 30_000, Boolean(opts.refresh)),
   ]);
 
   const detached = branchRes.code !== 0 || !branchRes.out.trim();
   const branch = detached ? "(detached)" : branchRes.out.trim();
   const changedFiles = statusRes.code === 0 ? lines(statusRes.out).length : 0;
+
+  let lastCommit: LastCommit | null = null;
+  if (logRes.code === 0 && logRes.out.trim()) {
+    const [sha, subject, date] = logRes.out.trim().split("\0");
+    if (sha && date) lastCommit = { sha, subject: subject ?? "", date };
+  }
 
   let behind = 0;
   let ahead = 0;
@@ -147,11 +169,20 @@ export async function summarizeRepo(projectsRoot: string, repoName: string, opts
 
   // Compare against the local main branch; fall back to origin/<main> if it has not been checked out locally.
   let openBranches: string[] = [];
+  let mergedBranches: string[] = [];
   const base = mainRef.code === 0 ? `refs/heads/${opts.mainBranch}` : `refs/remotes/origin/${opts.mainBranch}`;
   const baseOk = mainRef.code === 0 || (await git(dir, ["rev-parse", "--verify", "-q", base])).code === 0;
   if (baseOk) {
-    const nm = await git(dir, ["for-each-ref", "--format=%(refname:short)", "--no-merged", base, "refs/heads"]);
+    const [nm, mg] = await Promise.all([
+      git(dir, ["for-each-ref", "--format=%(refname:short)", "--no-merged", base, "refs/heads"]),
+      git(dir, ["for-each-ref", "--format=%(refname:short)", "--merged", base, "refs/heads"]),
+    ]);
     if (nm.code === 0) openBranches = lines(nm.out).filter((b) => b !== opts.mainBranch);
+    if (mg.code === 0) {
+      mergedBranches = lines(mg.out).filter(
+        (b) => b !== opts.mainBranch && b !== opts.integrationBranch && b !== branch,
+      );
+    }
   }
 
   const reasons: RepoSummary["reasons"] = [];
@@ -165,12 +196,16 @@ export async function summarizeRepo(projectsRoot: string, repoName: string, opts
     name: repoName,
     path: dir,
     branch,
+    mainBranch: opts.mainBranch,
+    integrationBranch: opts.integrationBranch,
     dirty: changedFiles > 0,
     changedFiles,
     ahead,
     behind,
     noUpstream,
     openBranches,
+    mergedBranches,
+    lastCommit,
     openPrs: prs,
     ghAvailable: prs !== null,
     stashes: stashRes.code === 0 ? lines(stashRes.out).length : 0,

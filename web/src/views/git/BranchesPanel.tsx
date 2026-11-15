@@ -26,19 +26,25 @@ function BranchMeta({ b }: { b: GitBranchInfo }) {
 
 export function BranchesPanel({
   data,
+  openPrs,
   error,
   ctx,
   onDelete,
+  onCleanMerged,
   onCreatePr,
+  onMergePr,
   selected,
   onSelectedChange,
   onRetry,
 }: {
   data: GitBranchesResponse | null;
+  openPrs?: { number: number; title: string; url: string; headRefName: string; baseRefName: string; isDraft: boolean }[] | null;
   error?: string;
   ctx: ActionCtx;
   onDelete: (names: string[]) => void;
+  onCleanMerged?: () => void;
   onCreatePr: (branch: string) => void;
+  onMergePr?: (pr: { number: number; url: string; headRefName: string; title: string }) => void;
   selected: ReadonlySet<string>;
   onSelectedChange: (s: Set<string>) => void;
   onRetry: () => void;
@@ -60,7 +66,45 @@ export function BranchesPanel({
   };
 
   return (
-    <Section title="Branches">
+    <Section title="Pull requests & Branches">
+      {openPrs && openPrs.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, paddingBottom: 10, borderBottom: "1px solid rgb(11 127 134 / 0.4)" }}>
+          <strong style={{ fontSize: 13 }}>Open pull requests ({openPrs.length})</strong>
+          <ul style={{ margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 8 }}>
+            {openPrs.map((pr) => (
+              <li key={pr.number} style={{ listStyle: "none" }}>
+                <Row gap={8}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 2, flex: 1, minWidth: 0 }}>
+                    <Row gap={6}>
+                      <a href={pr.url} target="_blank" rel="noreferrer" style={{ color: "#00f3ff", fontFamily: MONO, fontSize: 13 }}>
+                        #{pr.number}
+                      </a>
+                      <span style={{ fontSize: 13, overflowWrap: "anywhere" }}>{pr.title}</span>
+                      {pr.isDraft && <Badge variant="default">draft</Badge>}
+                    </Row>
+                    <span style={{ fontSize: 11, fontFamily: MONO, color: "#7aa5aa" }}>
+                      {pr.headRefName} → {pr.baseRefName}
+                    </span>
+                  </div>
+                  {onMergePr && (
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      disabled={ctx.busy !== null || pr.isDraft}
+                      loading={ctx.busy === `merge-pr:${pr.number}`}
+                      onClick={() => onMergePr(pr)}
+                    >
+                      {pr.isDraft ? "Draft PR" : "Squash & merge"}
+                    </Button>
+                  )}
+                </Row>
+              </li>
+            ))}
+          </ul>
+          <Text muted>Squash &amp; merge runs `gh pr merge --squash --delete-branch` (no repo admin rights needed) and prunes the local branch.</Text>
+        </div>
+      )}
+
       {error && !data ? (
         <Row>
           <Text muted>Could not load branches: {error}</Text>
@@ -116,6 +160,17 @@ export function BranchesPanel({
               <Button variant="ghost" size="sm" aria-expanded={showMerged} onClick={() => setShowMerged((v) => !v)}>
                 {showMerged ? "Hide" : "Show"}
               </Button>
+              {onCleanMerged && groups.deletable.length > 0 && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  loading={ctx.busy === "clean-merged"}
+                  disabled={ctx.busy !== null}
+                  onClick={onCleanMerged}
+                >
+                  Clean all merged ({groups.deletable.length})
+                </Button>
+              )}
             </Row>
             {showMerged && (
               <>
@@ -144,7 +199,7 @@ export function BranchesPanel({
                   Select none
                 </Button>
                 <Button variant="danger" size="sm" disabled={ctx.busy !== null || selected.size === 0} onClick={() => onDelete([...selected])}>
-                  Delete merged branches ({selected.size})...
+                  Delete selected ({selected.size})...
                 </Button>
               </Row>
             )}
@@ -154,3 +209,4 @@ export function BranchesPanel({
     </Section>
   );
 }
+

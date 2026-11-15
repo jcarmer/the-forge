@@ -84,52 +84,52 @@ function createdResult(r: GhResult): PrResult {
   return { ok: true, url, detail: "pull request opened" };
 }
 
-/** Repo merge settings applied before every PR: squash-only, auto-delete merged branches, allow auto-merge. */
-const repoSettingsArgs = [
-  "repo", "edit",
-  "--enable-squash-merge",
-  "--enable-merge-commit=false",
-  "--enable-rebase-merge=false",
-  "--delete-branch-on-merge",
-  "--enable-auto-merge",
-];
-
-/**
- * Best-effort: a token without repo-admin rights fails here, which must not block the PR itself.
- * Returns a warning to append to the result detail, or undefined on success.
- */
-function settingsWarning(r: GhResult): string | undefined {
-  if (r.missing || r.code === 0) return undefined;
-  return r.timedOut ? "repo merge settings update timed out" : `repo merge settings not updated: ${r.out.trim().split("\n")[0] || "gh repo edit failed"}`;
-}
-
-function withWarning(res: PrResult, warning: string | undefined): PrResult {
-  return warning ? { ...res, detail: `${res.detail} (warning: ${warning})` } : res;
-}
-
 /**
  * Opens a PR `head` -> `base`, or returns the existing open one (so retries are idempotent).
- * Never force-pushes, never edits branches: it only talks to the GitHub API via `gh`.
+ * Never force-pushes, never edits branches, and never modifies repo-level settings (`gh repo edit`),
+ * so `GH_TOKEN` only needs `Contents: Read & Write` and `Pull requests: Read & Write` (no Administration).
  * Synchronous (CLI use); the web server uses `openPullRequestAsync`.
  */
 export function openPullRequest(repoDir: string, opts: PrOpts): PrResult {
-  const warning = settingsWarning(gh(repoDir, ...repoSettingsArgs));
   const existing = existingResult(gh(repoDir, ...listArgs(opts)));
-  if (existing) return withWarning(existing, warning);
-  return withWarning(createdResult(gh(repoDir, ...createArgs(opts))), warning);
+  if (existing) return existing;
+  return createdResult(gh(repoDir, ...createArgs(opts)));
 }
 
 /** Same as `openPullRequest`, but async (does not block the event loop), non-interactive and time-limited per gh call. */
 export async function openPullRequestAsync(repoDir: string, opts: PrOpts, o: { timeoutMs?: number } = {}): Promise<PrResult> {
   const timeout = o.timeoutMs ?? 60_000;
-  const warning = settingsWarning(await ghAsync(repoDir, repoSettingsArgs, timeout));
   const existing = existingResult(await ghAsync(repoDir, listArgs(opts), timeout));
-  if (existing) return withWarning(existing, warning);
-  return withWarning(createdResult(await ghAsync(repoDir, createArgs(opts), timeout)), warning);
+  if (existing) return existing;
+  return createdResult(await ghAsync(repoDir, createArgs(opts), timeout));
+}
+
+function mergeResult(r: GhResult, target: string): PrResult {
+  if (r.missing) return { ok: false, merged: false, detail: "gh is not installed" };
+  if (r.timedOut) return { ok: false, merged: false, detail: "gh timed out while merging the pull request; check GitHub before retrying" };
+  const url = r.out.match(URL_RE)?.[0] ?? (URL_RE.test(target) ? target : undefined);
+  return {
+    ok: r.code === 0,
+    ...(url ? { url } : {}),
+    merged: r.code === 0,
+    detail: r.out.trim() || (r.code === 0 ? "merged and deleted remote branch" : "gh pr merge failed"),
+  };
 }
 
 /** Squash-merges a PR and deletes its branch. Fails (without side effects) if checks/protections block it. */
-export function squashMergePullRequest(repoDir: string, prUrl: string): PrResult {
-  const r = gh(repoDir, "pr", "merge", prUrl, "--squash", "--delete-branch");
-  return { ok: r.code === 0, url: prUrl, merged: r.code === 0, detail: r.out.trim() || "merged" };
+export function squashMergePullRequest(repoDir: string, prUrlOrNumber: string): PrResult {
+  const r = gh(repoDir, "pr", "merge", prUrlOrNumber, "--squash", "--delete-branch");
+  return mergeResult(r, prUrlOrNumber);
 }
+
+/** Async, non-interactive variant of `squashMergePullRequest` for the web server. */
+export async function squashMergePullRequestAsync(
+  repoDir: string,
+  prUrlOrNumber: string,
+  o: { timeoutMs?: number } = {},
+): Promise<PrResult> {
+  const timeout = o.timeoutMs ?? 60_000;
+  const r = await ghAsync(repoDir, ["pr", "merge", prUrlOrNumber, "--squash", "--delete-branch"], timeout);
+  return mergeResult(r, prUrlOrNumber);
+}
+

@@ -36,7 +36,7 @@ A Docker stack on a Windows 11 desktop (RTX 3080) that runs coding agents in iso
 1. Docker Desktop with WSL 2 backend and NVIDIA GPU support (verify: \`docker run --rm --gpus all nvidia/cuda:12.4.1-base-ubuntu22.04 nvidia-smi\`).
 2. Node.js LTS (the bootstrap script installs it via winget if missing).
 3. A Tailscale auth key tagged \`${m.network.tailscaleTag}\` (reusable, with the tag allowed in your ACL \`tagOwners\`).
-4. A fine-grained GitHub PAT: Contents read/write on only the needed repos. Branch protection on \`${m.git.mainBranch}\`.
+4. A fine-grained GitHub PAT: Contents read/write and Pull requests read/write on only the needed repos (no Administration rights required). Branch protection on \`${m.git.mainBranch}\`.
 5. Secrets file \`.env\` next to the compose file: \`${m.network.authKeyEnv}\`, \`GH_TOKEN\`, \`ANTHROPIC_API_KEY\` (optional). Never commit it.
 
 ## 3. Build and run
