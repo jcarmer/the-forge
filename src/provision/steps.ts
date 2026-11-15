@@ -74,7 +74,14 @@ export function buildProvisionSteps(manifest: Manifest): ProvisionStep[] {
       check: () => existsSync("/root/.gemini/config/mcp_config.json"),
       apply: () => {
         writeJsonIfMissingOrChanged("/root/.gemini/config/mcp_config.json", mcpConfig);
-        run("bash", ["-lc", "command -v claude >/dev/null 2>&1 && claude mcp add -s user ollama-helper -- python3 /root/.gemini/config/tools/ollama_helper_mcp.py 2>/dev/null || true"]);
+      },
+    },
+    {
+      // Separate from antigravity-mcp: that step's check passes once mcp_config.json exists, which used to skip this registration.
+      name: "claude-ollama-helper-mcp",
+      check: () => run("bash", ["-lc", "command -v claude >/dev/null 2>&1 || exit 0; claude mcp get ollama-helper >/dev/null 2>&1"]).code === 0,
+      apply: () => {
+        run("bash", ["-lc", "claude mcp add -s user ollama-helper -- python3 /root/.gemini/config/tools/ollama_helper_mcp.py"]);
       },
     },
     {
