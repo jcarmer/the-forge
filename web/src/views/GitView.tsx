@@ -307,6 +307,16 @@ export function GitView({ git }: { git: GitReposState }) {
     [reloadRepo],
   );
 
+  const prTarget = prModalRepo && repos ? repos.find((r) => r.name === prModalRepo) : undefined;
+  const prCtx: ActionCtx | null = useMemo(() => {
+    if (!prTarget) return null;
+    return {
+      busy: busyByRepo[prTarget.name] ?? null,
+      run: (k, title, fn, o) => runForRepo(prTarget.name, k, title, fn, o),
+      notify: (n) => setNotices((prev) => ({ ...prev, [prTarget.name]: n ?? undefined })),
+    };
+  }, [prTarget, busyByRepo, runForRepo]);
+
   const selected = selectedRepo && repos ? repos.find((r) => r.name === selectedRepo) : undefined;
   if (selected) {
     return (
@@ -318,16 +328,6 @@ export function GitView({ git }: { git: GitReposState }) {
       />
     );
   }
-
-  const prTarget = prModalRepo && repos ? repos.find((r) => r.name === prModalRepo) : undefined;
-  const prCtx: ActionCtx | null = useMemo(() => {
-    if (!prTarget) return null;
-    return {
-      busy: busyByRepo[prTarget.name] ?? null,
-      run: (k, title, fn, o) => runForRepo(prTarget.name, k, title, fn, o),
-      notify: (n) => setNotices((prev) => ({ ...prev, [prTarget.name]: n ?? undefined })),
-    };
-  }, [prTarget, busyByRepo, runForRepo]);
 
   const visibleRepos = repos ? filterRepos(repos, filter) : null;
   const firstCleanIdx =
