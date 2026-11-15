@@ -45,6 +45,35 @@ export interface RepoStatus {
   unpushed: boolean;
 }
 
+export interface GitRepoPr {
+  number: number;
+  title: string;
+  url: string;
+  headRefName: string;
+  baseRefName: string;
+  isDraft: boolean;
+}
+
+export type GitRepoReason = "dirty" | "behind" | "ahead" | "prs" | "branches";
+
+/** Mirrors RepoSummary in src/git/repoSummary.ts (GET /api/git/repos). */
+export interface GitRepoSummary {
+  name: string;
+  path: string;
+  branch: string;
+  dirty: boolean;
+  changedFiles: number;
+  ahead: number;
+  behind: number;
+  noUpstream: boolean;
+  openBranches: string[];
+  openPrs: GitRepoPr[] | null;
+  ghAvailable: boolean;
+  stashes: number;
+  attention: GitRepoReason | "clean";
+  reasons: GitRepoReason[];
+}
+
 export interface PackageConsumer {
   repo: string;
   repoPath: string;

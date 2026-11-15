@@ -16,6 +16,7 @@ import { listSessionFiles, defaultSources } from "../sessions/parse.js";
 import { executeTask } from "../worker/runner.js";
 import { loadTaskRecords, taskStorePath, upsertTaskRecord } from "../worker/taskStore.js";
 import { buildPackage, pushRepo, readPackageApiDts, scanPackages, scanRepos, togglePackageLink } from "../packages/hub.js";
+import { summarizeAllRepos } from "../git/repoSummary.js";
 import type { ForgeState, ServiceStatus, TaskRecord } from "../state/forgeState.js";
 
 export interface ServiceController {
@@ -223,6 +224,14 @@ export function createForgeRequestHandler(ctx: ForgeApiContext, hub: ForgeStateH
       if (req.method === "GET" && pathname === "/api/state") {
         await hub.refreshFast();
         return sendJson(res, 200, hub.getState());
+      }
+
+      if (req.method === "GET" && pathname === "/api/git/repos") {
+        const repos = await summarizeAllRepos(ctx.projectsRoot, {
+          mainBranch: ctx.manifest.git.mainBranch,
+          integrationBranch: ctx.manifest.git.integrationBranch,
+        });
+        return sendJson(res, 200, { repos, generatedAt: new Date().toISOString() });
       }
 
       if (req.method === "GET" && pathname === "/api/events") {
