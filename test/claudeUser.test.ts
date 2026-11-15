@@ -45,6 +45,19 @@ describe("settings merge", () => {
   });
 });
 
+describe("skills", () => {
+  it("copies repo skills into the claude dir and notices drift", () => {
+    const p = { repoDir, claudeDir };
+    mkdirSync(join(repoDir, "ops/claude-user/skills/demo"), { recursive: true });
+    writeFileSync(join(repoDir, "ops/claude-user/skills/demo/SKILL.md"), "---\nname: demo\n---\nv1\n");
+    installClaudeUserConfig(p);
+    expect(readFileSync(join(claudeDir, "skills/demo/SKILL.md"), "utf8")).toContain("v1");
+    expect(isClaudeUserConfigCurrent(p)).toBe(true);
+    writeFileSync(join(repoDir, "ops/claude-user/skills/demo/SKILL.md"), "---\nname: demo\n---\nv2\n");
+    expect(isClaudeUserConfigCurrent(p)).toBe(false);
+  });
+});
+
 describe("install step", () => {
   it("installs, then reports current; re-installs after the volume is wiped", () => {
     const p = { repoDir, claudeDir };

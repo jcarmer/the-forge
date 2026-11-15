@@ -129,10 +129,7 @@
 /* ── Square dropdown ─────────────────────────────────────────────────────── */
 
 .nsl-list {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  right: 0;
+  position: relative;
   z-index: 50;
   margin: 0;
   padding: 4px 0;
@@ -149,10 +146,7 @@
 /* ── Corner-cut dropdown frame ───────────────────────────────────────────── */
 
 .nsl-list-frame {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  right: 0;
+  position: relative;
   z-index: 50;
   background: color-mix(in srgb, var(--nsl-accent) 35%, transparent);
   padding: 1px;
@@ -215,3 +209,5 @@
   filter: drop-shadow(0 0 3px var(--nsl-accent));
   min-width: 12px;
 }
+
+.nsl-portal { font-family: var(--font-rajdhani, sans-serif); }

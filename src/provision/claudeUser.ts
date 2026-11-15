@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 export const FORGE_ROOT = "/opt/the-forge";
@@ -54,13 +54,30 @@ function readSettings(path: string): Json {
   return parsed as Json;
 }
 
+/** Skills shipped in the repo (ops/claude-user/skills/<name>/SKILL.md) that should exist under <claudeDir>/skills. */
+function skillNames(p: ClaudeUserPaths): string[] {
+  const dir = join(p.repoDir, "ops/claude-user/skills");
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir, { withFileTypes: true })
+    .filter((e) => e.isDirectory() && existsSync(join(dir, e.name, "SKILL.md")))
+    .map((e) => e.name);
+}
+
+function skillsCurrent(p: ClaudeUserPaths): boolean {
+  return skillNames(p).every((n) => {
+    const dst = join(p.claudeDir, "skills", n, "SKILL.md");
+    return existsSync(dst) && readFileSync(dst, "utf8") === readFileSync(join(p.repoDir, "ops/claude-user/skills", n, "SKILL.md"), "utf8");
+  });
+}
+
 export function isClaudeUserConfigCurrent(p: ClaudeUserPaths = defaults): boolean {
   try {
     const guidance = readFileSync(join(p.repoDir, "ops/claude-user/CLAUDE.md"), "utf8");
     const md = join(p.claudeDir, "CLAUDE.md");
     if (!existsSync(md) || mergeManagedBlock(readFileSync(md, "utf8"), guidance) !== readFileSync(md, "utf8")) return false;
     const settings = readSettings(join(p.claudeDir, "settings.json"));
-    return JSON.stringify(mergeHookSettings(settings, guardCommand(p))) === JSON.stringify(settings);
+    if (JSON.stringify(mergeHookSettings(settings, guardCommand(p))) !== JSON.stringify(settings)) return false;
+    return skillsCurrent(p);
   } catch {
     return false;
   }
@@ -77,4 +94,8 @@ export function installClaudeUserConfig(p: ClaudeUserPaths = defaults): void {
   const settingsPath = join(p.claudeDir, "settings.json");
   const merged = mergeHookSettings(readSettings(settingsPath), guardCommand(p));
   writeFileSync(settingsPath, JSON.stringify(merged, null, 2) + "\n", "utf8");
+
+  for (const n of skillNames(p)) {
+    cpSync(join(p.repoDir, "ops/claude-user/skills", n), join(p.claudeDir, "skills", n), { recursive: true });
+  }
 }

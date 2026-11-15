@@ -9,7 +9,7 @@ You are managing **The Forge**, a Docker-based AI development sandbox on the use
 4. **Backup before destructive changes**: Before pruning volumes or resetting branches, confirm with the user.
 
 ## Agent tooling guidance (all projects)
-Rules for tool choice and the `ollama-helper` local-model MCP (it must be loaded with `ToolSearch` first) live in `ops/claude-user/CLAUDE.md`. `the-forge up` installs them into `/root/.claude/CLAUDE.md` so they apply to every project, together with a Bash guard hook (`ops/claude-user/bash-guard.mjs`) that blocks bare `cat` of large files and unbounded recursive `grep`. Edit those files in the repo, never in the container, then run `npx tsx src/cli.ts up`.
+Rules for tool choice and the `ollama-helper` local-model MCP (it must be loaded with `ToolSearch` first) live in `ops/claude-user/CLAUDE.md`. `the-forge up` installs them into `/root/.claude/CLAUDE.md` so they apply to every project, together with a Bash guard hook (`ops/claude-user/bash-guard.mjs`) that blocks bare `cat` of large files and unbounded recursive `grep`. Skills in `ops/claude-user/skills/` (e.g. `forge-orchestrate`, which plans work in T3 and delegates it to sub-agents by complexity and quota) are installed into `/root/.claude/skills/` the same way. Edit those files in the repo, never in the container, then run `npx tsx src/cli.ts up`.
 
 
 ## Safe Commands (run freely to diagnose)

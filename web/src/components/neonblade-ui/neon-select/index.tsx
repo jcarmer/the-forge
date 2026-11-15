@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useCallback, useId, useRef, useState } from "react";
+import React, { useCallback, useId, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import "./neon-select.css";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -95,6 +96,24 @@ export const NeonSelect: React.FC<NeonSelectProps> = ({
   const [focusedIdx, setFocusedIdx] = useState(-1);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const listRef = useRef<HTMLElement | null>(null);
+  const [pos, setPos] = useState<{ top: number; left: number; width: number } | null>(null);
+
+  // The list is portalled to <body> so card clip-paths/overflow can't obscure it.
+  useLayoutEffect(() => {
+    if (!open) return;
+    const update = () => {
+      const r = (wrapperRef.current ?? triggerRef.current)?.getBoundingClientRect();
+      if (r) setPos({ top: r.bottom + 4, left: r.left, width: r.width });
+    };
+    update();
+    window.addEventListener("resize", update);
+    window.addEventListener("scroll", update, true);
+    return () => {
+      window.removeEventListener("resize", update);
+      window.removeEventListener("scroll", update, true);
+    };
+  }, [open]);
 
   const selectedOption = options.find((o) => o.value === currentValue);
   const enabledOpts = options.filter((o) => !o.disabled);
@@ -145,8 +164,9 @@ export const NeonSelect: React.FC<NeonSelectProps> = ({
 
   React.useEffect(() => {
     const handler = (e: MouseEvent) => {
-      if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node))
-        setOpen(false);
+      const t = e.target as Node;
+      if (wrapperRef.current?.contains(t) || listRef.current?.contains(t)) return;
+      setOpen(false);
     };
     if (open) document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
@@ -225,8 +245,13 @@ export const NeonSelect: React.FC<NeonSelectProps> = ({
       )}
 
       {/* Dropdown */}
-      {open &&
-        (cc ? (
+      {open && pos && createPortal(
+        <div
+          ref={(el) => { listRef.current = el; }}
+          className="nsl-portal"
+          style={{ position: "fixed", top: pos.top, left: pos.left, width: pos.width, zIndex: 10000, "--nsl-accent": accent } as React.CSSProperties}
+        >
+        {(cc ? (
           <div className="nsl-list-frame" style={{ clipPath: listClip }}>
             <ul
               id={listId}
@@ -296,6 +321,9 @@ export const NeonSelect: React.FC<NeonSelectProps> = ({
             })}
           </ul>
         ))}
+        </div>,
+        document.body,
+      )}
     </div>
   );
 };
