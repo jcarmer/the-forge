@@ -115,6 +115,6 @@ else
 fi
 
 log "Environment initialized."
-exec "$@"
+if [ "$#" -gt 0 ]; then exec "$@"; else exec sleep infinity; fi
 `;
 }

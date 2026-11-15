@@ -38,6 +38,7 @@ export function renderCompose(m: Manifest): string {
     "    restart: unless-stopped",
     "    # Invoke via /bin/bash so the Windows bind-mounted entrypoint.sh never needs +x.",
     '    entrypoint: ["/bin/bash", "/usr/local/bin/entrypoint.sh"]',
+    '    command: ["sleep", "infinity"]',
     "    network_mode: service:tailscale",
     "    depends_on:",
     "      - tailscale",

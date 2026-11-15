@@ -33,6 +33,7 @@ describe("generators", () => {
   it("invokes entrypoint.sh via /bin/bash so Windows bind mounts do not require +x", () => {
     expect(files["Dockerfile"]).toContain('ENTRYPOINT ["/bin/bash", "/usr/local/bin/entrypoint.sh"]');
     expect(files["docker-compose.yml"]).toContain('entrypoint: ["/bin/bash", "/usr/local/bin/entrypoint.sh"]');
+    expect(files["docker-compose.yml"]).toContain('command: ["sleep", "infinity"]');
   });
 
   it("documents every service in SETUP.md", () => {
