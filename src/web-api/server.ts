@@ -10,6 +10,9 @@ import { type ProviderName, UsageSnapshotSchema } from "../usage/schema.js";
 import { listProjects, scanContext } from "../context/inventory.js";
 import { getSession, listSessions, windowTotals } from "../sessions/parse.js";
 import { annotateWithOllama, deterministicFlags } from "../sessions/analyze.js";
+import { buildOverview, loadStories, renderDigest } from "../sessions/digest.js";
+import { storyForFile } from "../sessions/story.js";
+import { listSessionFiles, defaultSources } from "../sessions/parse.js";
 import { executeTask } from "../worker/runner.js";
 import { loadTaskRecords, taskStorePath, upsertTaskRecord } from "../worker/taskStore.js";
 import { buildPackage, pushRepo, readPackageApiDts, scanPackages, scanRepos, togglePackageLink } from "../packages/hub.js";
@@ -267,6 +270,26 @@ export function createForgeRequestHandler(ctx: ForgeApiContext, hub: ForgeStateH
           claudeWeeklyRemainingPct: claudeWeekly?.remainingPct ?? null,
           coverage: SESSION_COVERAGE,
         });
+      }
+
+      if (req.method === "GET" && pathname === "/api/sessions/overview") {
+        const days = Math.min(90, Math.max(1, Number(url.searchParams.get("days")) || 7));
+        const stories = loadStories(days);
+        return sendJson(res, 200, { overview: buildOverview(stories, days) });
+      }
+
+      if (req.method === "GET" && pathname === "/api/sessions/digest") {
+        const days = Math.min(90, Math.max(1, Number(url.searchParams.get("days")) || 7));
+        const redact = url.searchParams.get("redact") === "1";
+        const stories = loadStories(days, { redact });
+        return sendJson(res, 200, { markdown: renderDigest(stories, buildOverview(stories, days), { redact }) });
+      }
+
+      if (req.method === "GET" && pathname.startsWith("/api/sessions/") && pathname.endsWith("/story")) {
+        const id = pathname.slice("/api/sessions/".length, -"/story".length).replace(/[^a-zA-Z0-9._-]/g, "");
+        const f = id.length >= 8 ? listSessionFiles(defaultSources()).find((x) => x.file.includes(id)) : undefined;
+        if (!f) return sendJson(res, 404, { error: `session not found: ${id}` });
+        return sendJson(res, 200, { story: storyForFile(f.file, f.source) });
       }
 
       if (req.method === "GET" && pathname.startsWith("/api/sessions/")) {

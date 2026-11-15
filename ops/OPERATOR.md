@@ -8,6 +8,10 @@ You are managing **The Forge**, a Docker-based AI development sandbox on the use
 3. **Single source of truth**: Never edit files in `generated/` by hand. Change `sandbox.config.ts` and run `npx tsx src/cli.ts generate`.
 4. **Backup before destructive changes**: Before pruning volumes or resetting branches, confirm with the user.
 
+## Agent tooling guidance (all projects)
+Rules for tool choice and the `ollama-helper` local-model MCP (it must be loaded with `ToolSearch` first) live in `ops/claude-user/CLAUDE.md`. `the-forge up` installs them into `/root/.claude/CLAUDE.md` so they apply to every project, together with a Bash guard hook (`ops/claude-user/bash-guard.mjs`) that blocks bare `cat` of large files and unbounded recursive `grep`. Edit those files in the repo, never in the container, then run `npx tsx src/cli.ts up`.
+
+
 ## Safe Commands (run freely to diagnose)
 - `npx tsx src/cli.ts status` — show container state
 - `npx tsx src/cli.ts doctor` — check Tailscale, GPU, Ollama models, services, and `GH_TOKEN`
@@ -15,6 +19,8 @@ You are managing **The Forge**, a Docker-based AI development sandbox on the use
 - `npx tsx src/cli.ts usage` — collect and show live `/usage` quotas for Antigravity and Claude
 - `npx tsx src/cli.ts context [dir]` — list the guidance, rules, skills, MCP servers and settings in effect for a project (secrets are never shown); also the web UI's AI Context tab
 - `npx tsx src/cli.ts sessions [id] [--ollama]` — token use and MCP calls per T3/Claude conversation, with costly-step findings; `--ollama` adds one-line explanations (only counts and tool names are sent)
+- `npx tsx src/cli.ts sessions story <id> [--redact]` — narrative of one conversation: turns, time split (model vs tools vs you), cost, parallel calls, sub-agents, skills/MCP used, and findings
+- `npx tsx src/cli.ts sessions digest [--days 7] [--redact] [--out file.md]` — measured markdown brief of recent conversations for an LLM to review (workflow, missing skills/MCPs, model choice); `--redact` strips prompts, commands and paths. Also the "Copy advisor brief" button on the web UI Sessions tab
 - `npx tsx src/cli.ts route <trivial|normal|hard>` — preview which provider the router would pick
 - `npx tsx src/cli.ts healthcheck` — check config/docs drift, `/usage` parsers, and newer `qwen-coder` models
 - `npx tsx src/cli.ts migrate-check` — check legacy `C:\projects\sandbox` for uncommitted/unpushed work

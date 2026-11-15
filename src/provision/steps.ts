@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import type { Manifest } from "../schema.js";
 import { run } from "../ops.js";
+import { installClaudeUserConfig, isClaudeUserConfigCurrent } from "./claudeUser.js";
 
 const GH_CRED_HELPER =
   '!f() { [ "$1" = get ] && [ -n "$GH_TOKEN" ] && echo username=x-access-token && echo password=$GH_TOKEN; }; f';
@@ -83,6 +84,13 @@ export function buildProvisionSteps(manifest: Manifest): ProvisionStep[] {
       apply: () => {
         run("bash", ["-lc", "claude mcp add -s user ollama-helper -- python3 /root/.gemini/config/tools/ollama_helper_mcp.py"]);
       },
+    },
+    {
+      // Guidance + Bash guard hook live in the repo (ops/claude-user) and are copied into the /root/.claude volume,
+      // so a recreated container or pruned volume gets them back on the next `up`.
+      name: "claude-user-config",
+      check: () => isClaudeUserConfigCurrent(),
+      apply: () => installClaudeUserConfig(),
     },
     {
       name: "claude-config-persist",

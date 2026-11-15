@@ -187,6 +187,21 @@ export function parseClaudeTranscript(file: string): SessionDetail {
   return summarize(basename(file, ".jsonl"), "claude-transcript", file, project, b.build());
 }
 
+/** A thread's log plus its rotated older chunks (`.log.1` is newer than `.log.2`...), oldest first. */
+export function t3LogChunks(file: string): string[] {
+  const out: string[] = [];
+  for (let n = 1; ; n++) {
+    if (!existsSync(`${file}.${n}`)) break;
+    out.unshift(`${file}.${n}`);
+  }
+  return [...out, file];
+}
+
+/** Text of a thread's whole log across rotated chunks. */
+export function readT3LogText(file: string): string {
+  return t3LogChunks(file).map((f) => readFileSync(f, "utf8")).join("\n");
+}
+
 /** T3 provider event log: `[ISO timestamp] LABEL: {json}` per line, one file per thread. */
 export function parseT3ProviderLog(file: string): SessionDetail {
   const b = new StepBuilder();
@@ -194,7 +209,7 @@ export function parseT3ProviderLog(file: string): SessionDetail {
   const claudeSessionIds = new Set<string>();
   const allowedMcp = new Set<string>();
   const lineRe = /^\[([^\]]+)\] [A-Z_]+: (\{.*\})\s*$/;
-  for (const line of readFileSync(file, "utf8").split("\n")) {
+  for (const line of readT3LogText(file).split("\n")) {
     const m = line.match(lineRe);
     if (!m) continue;
     let rec: unknown;
@@ -249,7 +264,7 @@ export function listSessionFiles(src: SessionSources): { file: string; source: S
     }
   }
   if (existsSync(src.t3ProviderLogDir)) {
-    // Rotated files (`.log.1`) are older chunks of the same thread: the primary `.log` is parsed on its own.
+    // Rotated files (`.log.1`) are older chunks of the same thread: they are read together with the primary `.log`.
     for (const f of readdirSync(src.t3ProviderLogDir)) if (/^events\..+\.log$/.test(f)) add(join(src.t3ProviderLogDir, f), "t3-provider");
   }
   return out.sort((a, b) => b.mtimeMs - a.mtimeMs);
