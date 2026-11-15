@@ -18,3 +18,15 @@ html, body, #root {
   color: var(--foreground);
   font-family: var(--font-body);
 }
+
+/* Preflight is off, so give Neon Blade's CornerCutButton the base styles it expects from a reset:
+   no native button border/bevel, and the Orbitron face (`font-orbitron` has no theme token here). */
+.font-orbitron { font-family: var(--font-ui); }
+.ccb-solid, .ccb-outline, .ccb-ghost {
+  border: 0;
+  margin: 0;
+  line-height: 1.2;
+  font-family: var(--font-ui);
+  -webkit-appearance: none;
+  appearance: none;
+}

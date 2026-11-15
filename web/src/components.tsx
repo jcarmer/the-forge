@@ -101,8 +101,8 @@ export function Button({ variant = "primary", size = "sm", loading = false, disa
     <CornerCutButton
       color={COLOR[variant]}
       variant={variant === "primary" ? "solid" : variant === "ghost" ? "ghost" : "outline"}
-      size={size === "sm" ? "xs" : "sm"}
-      cornerSize={8}
+      size={size === "sm" ? "sm" : "md"}
+      cornerSize={12}
       hoverEffect="glow"
       disabled={disabled || loading}
       style={style}
@@ -186,26 +186,19 @@ export function TabsTrigger({ value, children }: { value: string; children: Reac
   const ctx = useContext(TabsCtx);
   const active = ctx.value === value;
   return (
-    <button
+    <CornerCutButton
       type="button"
       role="tab"
       aria-selected={active}
       onClick={() => ctx.set(value)}
-      style={{
-        background: active ? "rgb(0 243 255 / 0.08)" : "transparent",
-        border: 0,
-        borderBottom: `2px solid ${active ? COLOR.primary : "transparent"}`,
-        color: active ? COLOR.primary : MUTED,
-        textShadow: active ? "0 0 8px rgb(0 243 255 / 0.6)" : undefined,
-        cursor: "pointer",
-        padding: "10px 16px",
-        font: "600 12px var(--font-ui, 'Orbitron', 'Segoe UI', sans-serif)",
-        letterSpacing: "0.12em",
-        textTransform: "uppercase",
-      }}
+      color={COLOR.primary}
+      variant={active ? "solid" : "ghost"}
+      size="xs"
+      cornerSize={8}
+      hoverEffect="glow"
     >
       {children}
-    </button>
+    </CornerCutButton>
   );
 }
 
