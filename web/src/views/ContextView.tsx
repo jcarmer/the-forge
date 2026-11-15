@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { UI } from "@tbe/ui";
 import { Badge, Button, Choice, Heading, Pane, Text } from "../components";
+import UsageView from '../components/UsageView';
+import { UsageSnapshot } from "../types";
 
 interface ContextItem {
   kind: "guidance" | "rule" | "skill" | "mcp" | "setting";
@@ -28,7 +30,7 @@ const KINDS: { key: ContextItem["kind"]; title: string; hint: string }[] = [
 
 const scopeVariant = (s: ContextItem["scope"]) => (s === "project" ? "success" : s === "ancestor" ? "warning" : "default");
 
-export function ContextView() {
+export function ContextView({ usage }: { usage: UsageSnapshot | null }) {
   const [projects, setProjects] = useState<string[]>([]);
   const [project, setProject] = useState("");
   const [report, setReport] = useState<ContextReport | null>(null);
@@ -66,6 +68,9 @@ export function ContextView() {
 
   return (
     <UI.VStack spacing={UI.Size.px(12)} align="stretch">
+
+      <UsageView usage={usage} />
+
       <Pane padding={12}>
         <UI.HStack spacing={UI.Size.px(12)} align="center">
           <Heading>AI Context</Heading>

@@ -13,6 +13,8 @@ import { SessionsView } from "./views/SessionsView";
 import { GitView } from "./views/GitView";
 import { useGitRepos } from "./hooks/useGitRepos";
 import { attentionCount } from "./views/gitTileChips";
+import mjolnir from './../../mjolnir.webp';
+
 
 const TAB_KEYS = ["services", "diagnostics", "usage", "packages", "tasks", "context", "sessions", "git"] as const;
 type TabKey = (typeof TAB_KEYS)[number];
@@ -51,18 +53,7 @@ export function App() {
             <DiagnosticsView checks={state.diagnostics.checks} auth={state.auth.items} checkedAt={state.diagnostics.checkedAt} />
           ),
         },
-        { key: "usage", title: "Quota & Router", content: <UsageRouterView usage={state.usage} /> },
-        {
-          key: "packages",
-          title: dirtyPkgs > 0 ? `Packages & Repos (${dirtyPkgs} dirty)` : "Packages & Repos",
-          content: <PackagesReposView packages={state.packages} repos={state.repos} />,
-        },
-        {
-          key: "tasks",
-          title: runningTasks > 0 ? `Worktrees & Tasks (${runningTasks} active)` : "Worktrees & Tasks",
-          content: <TasksView tasks={state.tasks} repos={state.repos} />,
-        },
-        { key: "context", title: "AI Context", content: <ContextView /> },
+        { key: "context", title: "AI Context", content: <ContextView usage={state.usage} /> },
         { key: "sessions", title: "Sessions", content: <SessionsView /> },
         { key: "git", title: gitAttention > 0 ? `Git (${gitAttention})` : "Git", content: <GitView git={git} /> },
       ]
@@ -74,6 +65,7 @@ export function App() {
         <UI.VStack width={UI.Size.fill(1)} height={UI.Size.fill(1)} spacing={UI.Size.px(12)} align="stretch">
           <Pane padding={12}>
             <UI.HStack spacing={UI.Size.px(12)} align="center">
+              <img src={mjolnir} width={64} />
               <Heading>The Forge ({state?.hostname ?? "ai-sandbox"})</Heading>
               <Text muted>· branch: {state?.integrationBranch ?? "ai-work"}</Text>
               <UI.Spacer />
