@@ -103,7 +103,7 @@ nohup caddy run --config /etc/caddy/Caddyfile > /var/log/caddy.log 2>&1 &
 
 # 10. VS Code tunnel + default pnpm & TBE extension settings (first run needs a one-time login: the-forge tunnel-login)
 mkdir -p /root/.vscode-server/data/Machine /projects/.vscode
-VSCODE_SETTINGS='{"npm.packageManager":"pnpm","remote.extensionKind":{"local.tbe-vscode":["workspace"]}}'
+VSCODE_SETTINGS='{"npm.packageManager":"pnpm","npm.scriptRunner":"pnpm","remote.extensionKind":{"local.tbe-vscode":["workspace"]}}'
 [ -f /root/.vscode-server/data/Machine/settings.json ] || echo "$VSCODE_SETTINGS" > /root/.vscode-server/data/Machine/settings.json
 [ -f /projects/.vscode/settings.json ] || echo "$VSCODE_SETTINGS" > /projects/.vscode/settings.json
 [ -f /projects/.vscode/extensions.json ] || echo '{"recommendations":["local.tbe-vscode"]}' > /projects/.vscode/extensions.json

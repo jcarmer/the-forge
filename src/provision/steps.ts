@@ -24,10 +24,32 @@ function writeJsonIfMissingOrChanged(path: string, data: unknown) {
   writeFileSync(path, JSON.stringify(data, null, 2) + "\n", "utf8");
 }
 
+function readJson(path: string): Record<string, unknown> {
+  try {
+    return JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
+  } catch {
+    return {};
+  }
+}
+
+/** True when every wanted key already has the wanted value. */
+function hasSettings(path: string, want: Record<string, unknown>): boolean {
+  const have = readJson(path);
+  return Object.entries(want).every(([k, v]) => JSON.stringify(have[k]) === JSON.stringify(v));
+}
+
+/** Adds/overwrites only the wanted keys, keeping any other settings the user added. */
+function mergeJson(path: string, want: Record<string, unknown>) {
+  writeJsonIfMissingOrChanged(path, { ...readJson(path), ...want });
+}
+
 /** Builds the idempotent startup steps for inside the Linux container. */
 export function buildProvisionSteps(manifest: Manifest): ProvisionStep[] {
   const vscodeSettings = {
     "npm.packageManager": "pnpm",
+    // Newer VS Code builds have a second "auto" setting (npm.scriptRunner) that triggers the same
+    // "Found multiple lockfiles" popup, so both must be pinned.
+    "npm.scriptRunner": "pnpm",
     "remote.extensionKind": { "local.tbe-vscode": ["workspace"] },
   };
   const mcpConfig = {
@@ -59,14 +81,15 @@ export function buildProvisionSteps(manifest: Manifest): ProvisionStep[] {
       },
     },
     {
+      // Machine settings apply to every folder opened over the tunnel/server, so this covers all current and future repos.
       name: "vscode-workspace-settings",
       check: () =>
-        existsSync("/root/.vscode-server/data/Machine/settings.json") &&
-        existsSync("/projects/.vscode/settings.json") &&
+        hasSettings("/root/.vscode-server/data/Machine/settings.json", vscodeSettings) &&
+        hasSettings("/projects/.vscode/settings.json", vscodeSettings) &&
         existsSync("/projects/.vscode/extensions.json"),
       apply: () => {
-        writeJsonIfMissingOrChanged("/root/.vscode-server/data/Machine/settings.json", vscodeSettings);
-        writeJsonIfMissingOrChanged("/projects/.vscode/settings.json", vscodeSettings);
+        mergeJson("/root/.vscode-server/data/Machine/settings.json", vscodeSettings);
+        mergeJson("/projects/.vscode/settings.json", vscodeSettings);
         writeJsonIfMissingOrChanged("/projects/.vscode/extensions.json", { recommendations: ["local.tbe-vscode"] });
       },
     },
