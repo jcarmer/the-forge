@@ -9,8 +9,11 @@ import { PackagesReposView } from "./views/PackagesReposView";
 import { TasksView } from "./views/TasksView";
 import { ContextView } from "./views/ContextView";
 import { SessionsView } from "./views/SessionsView";
+import { GitView } from "./views/GitView";
+import { useGitRepos } from "./hooks/useGitRepos";
+import { attentionCount } from "./views/gitTileChips";
 
-type TabKey = "services" | "diagnostics" | "usage" | "packages" | "tasks" | "context" | "sessions";
+type TabKey = "services" | "diagnostics" | "usage" | "packages" | "tasks" | "context" | "sessions" | "git";
 
 export function App() {
   const { state, connected, error, reload } = useForgeState();
@@ -21,6 +24,9 @@ export function App() {
     (state?.auth.items.filter((a) => !a.ok).length ?? 0);
   const dirtyPkgs = state?.packages.filter((p) => p.dirty || p.unpushed).length ?? 0;
   const runningTasks = state?.tasks.filter((t) => t.status === "running").length ?? 0;
+
+  const git = useGitRepos();
+  const gitAttention = git.repos ? attentionCount(git.repos) : 0;
 
   const tabs: { key: TabKey; title: string; content: ReactNode }[] = state
     ? [
@@ -49,6 +55,7 @@ export function App() {
         },
         { key: "context", title: "AI Context", content: <ContextView /> },
         { key: "sessions", title: "Sessions", content: <SessionsView /> },
+        { key: "git", title: gitAttention > 0 ? `Git (${gitAttention})` : "Git", content: <GitView git={git} /> },
       ]
     : [];
 
