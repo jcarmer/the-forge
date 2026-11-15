@@ -795,27 +795,7 @@ export function commitAndPush(dir: string, body: { message?: unknown; files?: un
     const message = optString(body.message, "message", 20_000)?.trim();
     if (!message) throw new RepoActionError("commit message is required");
     const branch = await requireBranch(dir);
-    let paths: string[] | undefined;
-    let addPaths: string[] = [];
-    if (body.files !== undefined && body.files !== null) {
-      const v = await validateChangedFiles(dir, body.files);
-      paths = v.paths;
-      addPaths = await addablePaths(dir, v.files);
-    } else if (!(await getChanges(dir)).files.length) throw new RepoActionError("nothing to commit");
-
-    // Staged deletions / old rename paths are not passed to `git add` (they are already staged and exist nowhere),
-    // but they ARE passed to `git commit -- <paths>`, which matches them against HEAD.
-    if (!paths || addPaths.length) {
-      const add = await git(dir, paths ? ["add", "-A", "--", ...addPaths] : ["add", "-A"]);
-      if (add.code !== 0) throw new RepoActionError(`git add failed: ${msg(add, "unknown error")}`);
-    }
-    // With a file subset, `--only` semantics commit just those paths even if other files were staged earlier.
-    const commit = await git(dir, paths ? ["commit", "-m", message, "--", ...paths] : ["commit", "-m", message], { timeout: 120_000 });
-    if (commit.code !== 0) {
-      const text = msg(commit, "commit failed");
-      throw new RepoActionError(/nothing (added )?to commit|no changes added/i.test(text) ? "nothing to commit" : `commit failed: ${text}`);
-    }
-    const sha = await headSha(dir);
+    const sha = await stageAndCommit(dir, message, body.files);
     if (!(await hasOrigin(dir))) return { ok: true, detail: `committed ${sha?.slice(0, 7)} on ${branch}; no origin remote, so nothing was pushed`, commit: sha, pushed: false };
     const push = await pushBranch(dir, branch);
     return {
@@ -828,29 +808,106 @@ export function commitAndPush(dir: string, body: { message?: unknown; files?: un
   });
 }
 
+/** Stages (all, or only `files`) and commits on the current branch; returns the new sha. Caller holds the lock. */
+async function stageAndCommit(dir: string, message: string, files: unknown): Promise<string | undefined> {
+  let paths: string[] | undefined;
+  let addPaths: string[] = [];
+  if (files !== undefined && files !== null) {
+    const v = await validateChangedFiles(dir, files);
+    paths = v.paths;
+    addPaths = await addablePaths(dir, v.files);
+  } else if (!(await getChanges(dir)).files.length) throw new RepoActionError("nothing to commit");
+
+  // Staged deletions / old rename paths are not passed to `git add` (they are already staged and exist nowhere),
+  // but they ARE passed to `git commit -- <paths>`, which matches them against HEAD.
+  if (!paths || addPaths.length) {
+    const add = await git(dir, paths ? ["add", "-A", "--", ...addPaths] : ["add", "-A"]);
+    if (add.code !== 0) throw new RepoActionError(`git add failed: ${msg(add, "unknown error")}`);
+  }
+  // With a file subset, `--only` semantics commit just those paths even if other files were staged earlier.
+  const commit = await git(dir, paths ? ["commit", "-m", message, "--", ...paths] : ["commit", "-m", message], { timeout: 120_000 });
+  if (commit.code !== 0) {
+    const text = msg(commit, "commit failed");
+    throw new RepoActionError(/nothing (added )?to commit|no changes added/i.test(text) ? "nothing to commit" : `commit failed: ${text}`);
+  }
+  return headSha(dir);
+}
+
 /** Pushes `head` (non-force) then opens a PR via gh, or returns the already-open one. */
 export function createPr(
   dir: string,
   body: { title?: unknown; body?: unknown; base?: unknown; head?: unknown; draft?: unknown },
   defaults: { base: string; ghTimeoutMs?: number },
 ): Promise<GitActionResult> {
+  return withLock(dir, () => createPrLocked(dir, body, defaults));
+}
+
+async function createPrLocked(
+  dir: string,
+  body: { title?: unknown; body?: unknown; base?: unknown; head?: unknown; draft?: unknown },
+  defaults: { base: string; ghTimeoutMs?: number },
+): Promise<GitActionResult> {
+  const title = optString(body.title, "title", 256)?.trim();
+  if (!title) throw new RepoActionError("title is required");
+  const prBody = optString(body.body, "body", 65_536) ?? "";
+  const draft = optBool(body.draft, "draft") ?? false;
+  const current = await requireBranch(dir);
+  const head = await assertBranchName(dir, body.head ?? current, "head");
+  const base = await assertBranchName(dir, body.base ?? defaults.base, "base");
+  if (head === base) throw new RepoActionError(`head and base are the same branch (${head}); pick a different base`);
+  if ((await git(dir, ["rev-parse", "--verify", "-q", `refs/heads/${head}`])).code !== 0) throw new RepoActionError(`no local branch named ${head}`);
+  if (!(await hasOrigin(dir))) throw new RepoActionError("no origin remote to open a pull request against");
+  const push = await pushBranch(dir, head);
+  if (!push.ok) return { ok: false, detail: push.detail, pushed: false };
+  const pr = await openPullRequestAsync(dir, { head, base, title, body: prBody, draft }, { timeoutMs: defaults.ghTimeoutMs });
+  // The tiles cache `gh pr list` per repo: drop it so the new PR shows up on the next refresh.
+  invalidateRepoCaches(dir);
+  return { ok: pr.ok, detail: redact(pr.detail), ...(pr.url ? { url: pr.url } : {}), pushed: true };
+}
+
+/**
+ * For work sitting uncommitted on the main branch: creates `branch` from the current HEAD, commits the chosen
+ * `files` (or everything) there, pushes it and opens a PR into `base`. The base branch itself is never committed to.
+ * Files that were not chosen stay uncommitted in the working tree. On success we return to the original branch.
+ * If a step after the branch switch fails we stay on the new branch (the work is on it), and say so.
+ */
+export function commitToNewBranchPr(
+  dir: string,
+  body: { branch?: unknown; message?: unknown; files?: unknown; title?: unknown; body?: unknown; base?: unknown; draft?: unknown },
+  defaults: { base: string; ghTimeoutMs?: number },
+): Promise<GitActionResult> {
   return withLock(dir, async () => {
-    const title = optString(body.title, "title", 256)?.trim();
-    if (!title) throw new RepoActionError("title is required");
-    const prBody = optString(body.body, "body", 65_536) ?? "";
-    const draft = optBool(body.draft, "draft") ?? false;
-    const current = await requireBranch(dir);
-    const head = await assertBranchName(dir, body.head ?? current, "head");
+    const message = optString(body.message, "message", 20_000)?.trim();
+    if (!message) throw new RepoActionError("commit message is required");
+    if (!optString(body.title, "title", 256)?.trim()) throw new RepoActionError("title is required");
+    const original = await requireBranch(dir);
+    const branch = await assertBranchName(dir, body.branch, "branch");
     const base = await assertBranchName(dir, body.base ?? defaults.base, "base");
-    if (head === base) throw new RepoActionError(`head and base are the same branch (${head}); pick a different base`);
-    if ((await git(dir, ["rev-parse", "--verify", "-q", `refs/heads/${head}`])).code !== 0) throw new RepoActionError(`no local branch named ${head}`);
+    if (branch === base || branch === original) throw new RepoActionError(`pick a new branch name (${branch} already exists as the base)`);
     if (!(await hasOrigin(dir))) throw new RepoActionError("no origin remote to open a pull request against");
-    const push = await pushBranch(dir, head);
-    if (!push.ok) return { ok: false, detail: push.detail, pushed: false };
-    const pr = await openPullRequestAsync(dir, { head, base, title, body: prBody, draft }, { timeoutMs: defaults.ghTimeoutMs });
-    // The tiles cache `gh pr list` per repo: drop it so the new PR shows up on the next refresh.
-    invalidateRepoCaches(dir);
-    return { ok: pr.ok, detail: redact(pr.detail), ...(pr.url ? { url: pr.url } : {}), pushed: true };
+    if ((await git(dir, ["rev-parse", "--verify", "-q", `refs/heads/${branch}`])).code === 0) throw new RepoActionError(`branch ${branch} already exists; pick another name`);
+    if ((await git(dir, ["rev-parse", "--verify", "-q", `refs/remotes/origin/${branch}`])).code === 0) throw new RepoActionError(`branch ${branch} already exists on origin; pick another name`);
+    // Validate the file list before moving HEAD so a bad selection changes nothing.
+    if (body.files !== undefined && body.files !== null) await validateChangedFiles(dir, body.files);
+    else if (!(await getChanges(dir)).files.length) throw new RepoActionError("nothing to commit");
+
+    const sw = await git(dir, ["switch", "-c", branch]);
+    if (sw.code !== 0) throw new RepoActionError(`could not create branch ${branch}: ${msg(sw, "unknown error")}`);
+    const stay = (detail: string): string => `${detail} You are now on ${branch}; ${original} is untouched.`;
+    let sha: string | undefined;
+    try {
+      sha = await stageAndCommit(dir, message, body.files);
+    } catch (e) {
+      // Nothing was committed: go back so the user is not left on an empty branch.
+      await git(dir, ["switch", original]);
+      await git(dir, ["branch", "-D", branch]);
+      throw e;
+    }
+    const pr = await createPrLocked(dir, { title: body.title, body: body.body, base, head: branch, draft: body.draft }, defaults);
+    if (!pr.ok) return { ...pr, detail: stay(`Committed ${sha?.slice(0, 7)} to ${branch}, but: ${pr.detail}`), commit: sha, committed: true };
+    const back = await git(dir, ["switch", original]);
+    const tail = back.code === 0 ? ` Back on ${original}.` : ` Could not switch back to ${original}: ${msg(back, "unknown error")}`;
+    return { ...pr, detail: `${pr.detail}.${tail}`, commit: sha, committed: true };
   });
 }
 
@@ -1172,7 +1229,7 @@ export interface RepoRouteRequest {
 }
 
 const GET_ROUTES = new Set(["changes", "diff", "branches", "stashes", "links"]);
-const POST_ROUTES = new Set(["summary", "draft-message", "commit-push", "create-pr", "discard", "pull", "sync-main", "stash", "stash-pop", "stage", "unstage", "delete-branches"]);
+const POST_ROUTES = new Set(["summary", "draft-message", "commit-push", "create-pr", "commit-pr", "discard", "pull", "sync-main", "stash", "stash-pop", "stage", "unstage", "delete-branches"]);
 
 /** Matches `/api/git/repo/<name>/<action>`; returns null for other paths. */
 export function matchRepoRoute(pathname: string): { name: string; action: string } | null {
@@ -1218,6 +1275,9 @@ export async function handleRepoRoute(cfg: RepoRouteConfig, req: RepoRouteReques
         break;
       case "create-pr":
         out = await createPr(dir, b, { base: cfg.mainBranch });
+        break;
+      case "commit-pr":
+        out = await commitToNewBranchPr(dir, b, { base: cfg.mainBranch });
         break;
       case "discard":
         out = await discardChanges(dir, req.name, b);

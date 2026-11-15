@@ -7,6 +7,7 @@ import { useDraft } from "./useAiSummary";
 export function PrDialog({
   repoName,
   branch,
+  canDraft = true,
   defaultBase,
   uncommitted,
   ahead,
@@ -15,6 +16,8 @@ export function PrDialog({
 }: {
   repoName: string;
   branch: string;
+  /** AI drafting reads the checked-out branch, so it is off when the PR is for another branch. */
+  canDraft?: boolean;
   defaultBase: string;
   uncommitted: number;
   ahead: number;
@@ -31,13 +34,17 @@ export function PrDialog({
   const drafting = state.status === "loading";
 
   useEffect(() => {
+    if (!canDraft) {
+      setTitle((t) => t || branch.replace(/^[^/]+\//, "").replace(/[-_]+/g, " "));
+      return;
+    }
     void load(false).then((d) => {
       if (d && !touched.current) {
         if (d.prTitle) setTitle(d.prTitle);
         if (d.prBody) setBody(d.prBody);
       }
     });
-  }, [load]);
+  }, [load, canDraft, branch]);
 
   const sameBranch = base.trim() === branch;
   const canSubmit = title.trim() !== "" && base.trim() !== "" && !sameBranch && !drafting;
@@ -108,7 +115,7 @@ export function PrDialog({
         <Checkbox checked={draft} onChange={setDraft} label="Open as draft" />
       </Row>
       {sameBranch && <span role="alert" style={{ color: "#ff9db3", fontSize: 13 }}>The base branch must differ from {branch}.</span>}
-      <Row>
+      {canDraft && <Row>
         <Button
           variant="secondary"
           size="sm"
@@ -128,7 +135,7 @@ export function PrDialog({
         </Button>
         {drafting && <Text muted>Asking the local model... you can also write your own.</Text>}
         {state.status === "error" && <Text muted>AI draft unavailable: {state.detail}</Text>}
-      </Row>
+      </Row>}
       <InlineError text={error} />
     </Dialog>
   );

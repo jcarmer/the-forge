@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { mkdtempSync, writeFileSync, chmodSync, rmSync } from "node:fs";
+import { mkdtempSync, writeFileSync, chmodSync, rmSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openPullRequest, openPullRequestAsync, squashMergePullRequest } from "../src/git/pullRequest.js";
@@ -11,6 +11,7 @@ beforeAll(() => {
   dir = mkdtempSync(join(tmpdir(), "fake-gh-"));
   const script = `#!/bin/bash
 case "$1 $2" in
+  "repo edit") echo "$*" >> "\${FAKE_EDIT_LOG:-/dev/null}"; [ -n "$FAKE_EDIT_FAIL" ] && { echo "Must have admin rights"; exit 1; }; exit 0;;
   "pr list") [ -n "$FAKE_EXISTING" ] && echo "$FAKE_EXISTING"; exit 0;;
   "pr create")
     [ -n "$FAKE_SLEEP" ] && sleep "$FAKE_SLEEP"
@@ -45,6 +46,22 @@ describe("pull requests via gh", () => {
     const r = openPullRequest(tmpdir(), opts);
     expect(r).toMatchObject({ ok: true, url: "https://github.com/o/r/pull/3" });
     delete process.env.FAKE_EXISTING;
+  });
+
+  it("applies squash-only repo settings before creating the PR, and only warns if that fails", () => {
+    const log = join(dir, "edit.log");
+    process.env.FAKE_EDIT_LOG = log;
+    delete process.env.FAKE_EXISTING;
+    expect(openPullRequest(tmpdir(), opts)).toMatchObject({ ok: true, detail: "pull request opened" });
+    expect(readFileSync(log, "utf8").trim()).toBe(
+      "repo edit --enable-squash-merge --enable-merge-commit=false --enable-rebase-merge=false --delete-branch-on-merge --enable-auto-merge",
+    );
+    process.env.FAKE_EDIT_FAIL = "1";
+    const r = openPullRequest(tmpdir(), opts);
+    expect(r.ok).toBe(true);
+    expect(r.detail).toContain("repo merge settings not updated: Must have admin rights");
+    delete process.env.FAKE_EDIT_FAIL;
+    delete process.env.FAKE_EDIT_LOG;
   });
 
   it("reports merge failures instead of throwing", () => {

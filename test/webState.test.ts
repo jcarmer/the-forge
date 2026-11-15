@@ -91,3 +91,13 @@ describe("package hub", () => {
     }
   });
 });
+
+describe("branchFromTitle", () => {
+  it("makes a git-safe slug and drops conventional-commit prefixes", async () => {
+    const { branchFromTitle } = await import("../web/src/views/git/branchName.js");
+    expect(branchFromTitle("feat(ui): Add the Login Page!")).toBe("feature/add-the-login-page");
+    expect(branchFromTitle("Fix  bug\nsecond line")).toBe("feature/fix-bug");
+    expect(branchFromTitle("???")).toBe("");
+    expect(branchFromTitle("x".repeat(100)).length).toBeLessThanOrEqual(69);
+  });
+});

@@ -7,6 +7,7 @@ export function ActionsBar({
   selectedCount,
   totalCount,
   hasBranch,
+  onMain = false,
   onCommit,
   onPr,
   onDiscard,
@@ -15,6 +16,8 @@ export function ActionsBar({
   selectedCount: number;
   totalCount: number;
   hasBranch: boolean;
+  /** Checked-out branch is the main branch: Create PR then commits the selection to a new branch. */
+  onMain?: boolean;
   onCommit: () => void;
   onPr: () => void;
   onDiscard: () => void;
@@ -43,7 +46,9 @@ export function ActionsBar({
               ? "Nothing to commit or discard. Create PR still works for commits that are already on the branch."
               : noneSelected
                 ? "Select at least one file above to commit or discard."
-                : `Commit + push uses the ${selectedCount} selected of ${totalCount} file${totalCount === 1 ? "" : "s"}. Discard acts on the same selection, asks you to type a confirmation and keeps a recovery snapshot.`}
+                : onMain
+                  ? `Create PR will make a new branch, commit the ${selectedCount} selected of ${totalCount} file${totalCount === 1 ? "" : "s"} to it and open a PR, leaving the main branch untouched. Commit + push commits straight to this branch. Discard acts on the same selection, asks you to type a confirmation and keeps a recovery snapshot.`
+                  : `Commit + push uses the ${selectedCount} selected of ${totalCount} file${totalCount === 1 ? "" : "s"}. Discard acts on the same selection, asks you to type a confirmation and keeps a recovery snapshot.`}
         </Text>
       </Section>
     </div>

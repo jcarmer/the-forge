@@ -84,23 +84,48 @@ function createdResult(r: GhResult): PrResult {
   return { ok: true, url, detail: "pull request opened" };
 }
 
+/** Repo merge settings applied before every PR: squash-only, auto-delete merged branches, allow auto-merge. */
+const repoSettingsArgs = [
+  "repo", "edit",
+  "--enable-squash-merge",
+  "--enable-merge-commit=false",
+  "--enable-rebase-merge=false",
+  "--delete-branch-on-merge",
+  "--enable-auto-merge",
+];
+
+/**
+ * Best-effort: a token without repo-admin rights fails here, which must not block the PR itself.
+ * Returns a warning to append to the result detail, or undefined on success.
+ */
+function settingsWarning(r: GhResult): string | undefined {
+  if (r.missing || r.code === 0) return undefined;
+  return r.timedOut ? "repo merge settings update timed out" : `repo merge settings not updated: ${r.out.trim().split("\n")[0] || "gh repo edit failed"}`;
+}
+
+function withWarning(res: PrResult, warning: string | undefined): PrResult {
+  return warning ? { ...res, detail: `${res.detail} (warning: ${warning})` } : res;
+}
+
 /**
  * Opens a PR `head` -> `base`, or returns the existing open one (so retries are idempotent).
  * Never force-pushes, never edits branches: it only talks to the GitHub API via `gh`.
  * Synchronous (CLI use); the web server uses `openPullRequestAsync`.
  */
 export function openPullRequest(repoDir: string, opts: PrOpts): PrResult {
+  const warning = settingsWarning(gh(repoDir, ...repoSettingsArgs));
   const existing = existingResult(gh(repoDir, ...listArgs(opts)));
-  if (existing) return existing;
-  return createdResult(gh(repoDir, ...createArgs(opts)));
+  if (existing) return withWarning(existing, warning);
+  return withWarning(createdResult(gh(repoDir, ...createArgs(opts))), warning);
 }
 
 /** Same as `openPullRequest`, but async (does not block the event loop), non-interactive and time-limited per gh call. */
 export async function openPullRequestAsync(repoDir: string, opts: PrOpts, o: { timeoutMs?: number } = {}): Promise<PrResult> {
   const timeout = o.timeoutMs ?? 60_000;
+  const warning = settingsWarning(await ghAsync(repoDir, repoSettingsArgs, timeout));
   const existing = existingResult(await ghAsync(repoDir, listArgs(opts), timeout));
-  if (existing) return existing;
-  return createdResult(await ghAsync(repoDir, createArgs(opts), timeout));
+  if (existing) return withWarning(existing, warning);
+  return withWarning(createdResult(await ghAsync(repoDir, createArgs(opts), timeout)), warning);
 }
 
 /** Squash-merges a PR and deletes its branch. Fails (without side effects) if checks/protections block it. */
