@@ -1,3 +1,4 @@
+import { execFile } from "node:child_process";
 import { run } from "../ops.js";
 
 export interface PrResult {
@@ -9,10 +10,53 @@ export interface PrResult {
   detail: string;
 }
 
+export interface PrOpts {
+  head: string;
+  base: string;
+  title: string;
+  body: string;
+  draft?: boolean;
+}
+
+interface GhResult {
+  code: number;
+  out: string;
+  missing: boolean;
+  timedOut?: boolean;
+}
+
 const URL_RE = /https:\/\/github\.com\/[^\s]+\/pull\/\d+/;
 
-function gh(repoDir: string, ...args: string[]) {
+function gh(repoDir: string, ...args: string[]): GhResult {
   return run("gh", args, { cwd: repoDir });
+}
+
+/** Non-blocking gh call for the web server: never prompts, killed after `timeoutMs`. */
+function ghAsync(repoDir: string, args: string[], timeoutMs: number): Promise<GhResult> {
+  return new Promise((resolve) => {
+    execFile(
+      "gh",
+      args,
+      {
+        cwd: repoDir,
+        timeout: timeoutMs,
+        encoding: "utf8",
+        maxBuffer: 4 * 1024 * 1024,
+        env: { ...process.env, GH_PROMPT_DISABLED: "1", GIT_TERMINAL_PROMPT: "0" },
+      },
+      (err, stdout, stderr) => {
+        const out = (stdout ?? "") + (stderr ?? "");
+        if (!err) return resolve({ code: 0, out, missing: false });
+        const e = err as NodeJS.ErrnoException & { killed?: boolean; code?: number | string };
+        resolve({
+          code: typeof e.code === "number" ? e.code : 1,
+          out,
+          missing: e.code === "ENOENT",
+          timedOut: Boolean(e.killed),
+        });
+      },
+    );
+  });
 }
 
 /** Cheap check that `gh` is installed and authenticated (via GH_TOKEN or a login). */
@@ -22,25 +66,41 @@ export function ghAvailable(repoDir = process.cwd()): { ok: boolean; detail: str
   return { ok: r.code === 0, detail: r.code === 0 ? "authenticated" : r.out.trim().split("\n")[0] || "not authenticated" };
 }
 
+// Shared by the sync and async variants.
+const listArgs = (o: PrOpts) => ["pr", "list", "--head", o.head, "--base", o.base, "--state", "open", "--json", "url", "--jq", ".[0].url"];
+const createArgs = (o: PrOpts) => ["pr", "create", "--head", o.head, "--base", o.base, "--title", o.title, "--body", o.body, ...(o.draft ? ["--draft"] : [])];
+
+function existingResult(r: GhResult): PrResult | null {
+  if (r.missing) return { ok: false, detail: "gh is not installed" };
+  if (r.timedOut) return { ok: false, detail: "gh timed out while looking for an open pull request" };
+  const found = r.out.match(URL_RE)?.[0];
+  return r.code === 0 && found ? { ok: true, url: found, detail: "pull request already open" } : null;
+}
+
+function createdResult(r: GhResult): PrResult {
+  if (r.timedOut) return { ok: false, detail: "gh timed out while creating the pull request; check GitHub before retrying" };
+  const url = r.out.match(URL_RE)?.[0];
+  if (r.code !== 0 || !url) return { ok: false, detail: r.out.trim() || "gh pr create failed" };
+  return { ok: true, url, detail: "pull request opened" };
+}
+
 /**
  * Opens a PR `head` -> `base`, or returns the existing open one (so retries are idempotent).
  * Never force-pushes, never edits branches: it only talks to the GitHub API via `gh`.
+ * Synchronous (CLI use); the web server uses `openPullRequestAsync`.
  */
-export function openPullRequest(
-  repoDir: string,
-  opts: { head: string; base: string; title: string; body: string; draft?: boolean },
-): PrResult {
-  const existing = gh(repoDir, "pr", "list", "--head", opts.head, "--base", opts.base, "--state", "open", "--json", "url", "--jq", ".[0].url");
-  if (existing.missing) return { ok: false, detail: "gh is not installed" };
-  const found = existing.out.match(URL_RE)?.[0];
-  if (existing.code === 0 && found) return { ok: true, url: found, detail: "pull request already open" };
+export function openPullRequest(repoDir: string, opts: PrOpts): PrResult {
+  const existing = existingResult(gh(repoDir, ...listArgs(opts)));
+  if (existing) return existing;
+  return createdResult(gh(repoDir, ...createArgs(opts)));
+}
 
-  const args = ["pr", "create", "--head", opts.head, "--base", opts.base, "--title", opts.title, "--body", opts.body];
-  if (opts.draft) args.push("--draft");
-  const created = gh(repoDir, ...args);
-  const url = created.out.match(URL_RE)?.[0];
-  if (created.code !== 0 || !url) return { ok: false, detail: created.out.trim() || "gh pr create failed" };
-  return { ok: true, url, detail: "pull request opened" };
+/** Same as `openPullRequest`, but async (does not block the event loop), non-interactive and time-limited per gh call. */
+export async function openPullRequestAsync(repoDir: string, opts: PrOpts, o: { timeoutMs?: number } = {}): Promise<PrResult> {
+  const timeout = o.timeoutMs ?? 60_000;
+  const existing = existingResult(await ghAsync(repoDir, listArgs(opts), timeout));
+  if (existing) return existing;
+  return createdResult(await ghAsync(repoDir, createArgs(opts), timeout));
 }
 
 /** Squash-merges a PR and deletes its branch. Fails (without side effects) if checks/protections block it. */
