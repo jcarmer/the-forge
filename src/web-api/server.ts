@@ -10,9 +10,15 @@ import { type ProviderName, UsageSnapshotSchema } from "../usage/schema.js";
 import { listProjects, scanContext } from "../context/inventory.js";
 import { getSession, listSessions, windowTotals } from "../sessions/parse.js";
 import { annotateWithOllama, deterministicFlags } from "../sessions/analyze.js";
+import { buildOverview, loadStories, renderDigest } from "../sessions/digest.js";
+import { storyForFile } from "../sessions/story.js";
+import { listSessionFiles, defaultSources } from "../sessions/parse.js";
 import { executeTask } from "../worker/runner.js";
 import { loadTaskRecords, taskStorePath, upsertTaskRecord } from "../worker/taskStore.js";
 import { buildPackage, pushRepo, readPackageApiDts, scanPackages, scanRepos, togglePackageLink } from "../packages/hub.js";
+import { summarizeAllRepos, summarizeRepo } from "../git/repoSummary.js";
+import { RepoActionError } from "../git/repoResolve.js";
+import { handleRepoRoute, matchRepoRoute } from "../git/repoActions.js";
 import type { ForgeState, ServiceStatus, TaskRecord } from "../state/forgeState.js";
 
 export interface ServiceController {
@@ -44,6 +50,25 @@ async function readJsonBody<T = Record<string, unknown>>(req: IncomingMessage): 
   for await (const chunk of req) chunks.push(chunk as Buffer);
   const raw = Buffer.concat(chunks).toString("utf8").trim();
   return (raw ? JSON.parse(raw) : {}) as T;
+}
+
+/** Like readJsonBody, but capped at `limit` bytes and returns null for oversized or malformed JSON objects. */
+async function readJsonObjectLimited(req: IncomingMessage, limit = 1024 * 1024): Promise<Record<string, unknown> | null> {
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of req) {
+    size += (chunk as Buffer).length;
+    if (size > limit) return null;
+    chunks.push(chunk as Buffer);
+  }
+  const raw = Buffer.concat(chunks).toString("utf8").trim();
+  if (!raw) return {};
+  try {
+    const v = JSON.parse(raw) as unknown;
+    return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
 }
 
 function sendJson(res: ServerResponse, status: number, body: unknown) {
@@ -222,6 +247,42 @@ export function createForgeRequestHandler(ctx: ForgeApiContext, hub: ForgeStateH
         return sendJson(res, 200, hub.getState());
       }
 
+      if (req.method === "GET" && pathname === "/api/git/repos") {
+        // ?repo=<name> summarises just that repo (after an action); ?refresh=1 is an explicit user refresh that
+        // bypasses the per-repo `git fetch` throttle and the gh cache.
+        const opts = {
+          mainBranch: ctx.manifest.git.mainBranch,
+          integrationBranch: ctx.manifest.git.integrationBranch,
+          refresh: url.searchParams.get("refresh") === "1",
+        };
+        const one = url.searchParams.get("repo");
+        let repos;
+        try {
+          repos = one !== null ? [await summarizeRepo(ctx.projectsRoot, one, opts)] : await summarizeAllRepos(ctx.projectsRoot, opts);
+        } catch (e) {
+          if (e instanceof RepoActionError) return sendJson(res, e.status, { ok: false, error: e.message, detail: e.message });
+          throw e;
+        }
+        return sendJson(res, 200, { repos, generatedAt: new Date().toISOString() });
+      }
+
+      // Per-repo Git detail page: /api/git/repo/<name>/<action> (see src/git/repoActions.ts for the route table).
+      const repoRoute = matchRepoRoute(pathname);
+      if (repoRoute) {
+        const body = req.method === "POST" ? await readJsonObjectLimited(req) : {};
+        if (body === null) return sendJson(res, 400, { ok: false, error: "invalid JSON body", detail: "body must be a JSON object under 1MB" });
+        const r = await handleRepoRoute(
+          {
+            projectsRoot: ctx.projectsRoot,
+            mainBranch: ctx.manifest.git.mainBranch,
+            integrationBranch: ctx.manifest.git.integrationBranch,
+            model: ctx.manifest.ollama.primaryModel,
+          },
+          { method: req.method ?? "GET", name: repoRoute.name, action: repoRoute.action, query: url.searchParams, body },
+        );
+        return sendJson(res, r.status, r.body);
+      }
+
       if (req.method === "GET" && pathname === "/api/events") {
         res.writeHead(200, {
           "content-type": "text/event-stream; charset=utf-8",
@@ -267,6 +328,26 @@ export function createForgeRequestHandler(ctx: ForgeApiContext, hub: ForgeStateH
           claudeWeeklyRemainingPct: claudeWeekly?.remainingPct ?? null,
           coverage: SESSION_COVERAGE,
         });
+      }
+
+      if (req.method === "GET" && pathname === "/api/sessions/overview") {
+        const days = Math.min(90, Math.max(0.25, Number(url.searchParams.get("days")) || 7));
+        const stories = loadStories(days);
+        return sendJson(res, 200, { overview: buildOverview(stories, days) });
+      }
+
+      if (req.method === "GET" && pathname === "/api/sessions/digest") {
+        const days = Math.min(90, Math.max(0.25, Number(url.searchParams.get("days")) || 7));
+        const redact = url.searchParams.get("redact") === "1";
+        const stories = loadStories(days, { redact });
+        return sendJson(res, 200, { markdown: renderDigest(stories, buildOverview(stories, days), { redact }) });
+      }
+
+      if (req.method === "GET" && pathname.startsWith("/api/sessions/") && pathname.endsWith("/story")) {
+        const id = pathname.slice("/api/sessions/".length, -"/story".length).replace(/[^a-zA-Z0-9._-]/g, "");
+        const f = id.length >= 8 ? listSessionFiles(defaultSources()).find((x) => x.file.includes(id)) : undefined;
+        if (!f) return sendJson(res, 404, { error: `session not found: ${id}` });
+        return sendJson(res, 200, { story: storyForFile(f.file, f.source) });
       }
 
       if (req.method === "GET" && pathname.startsWith("/api/sessions/")) {

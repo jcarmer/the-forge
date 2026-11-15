@@ -87,7 +87,8 @@ RUN git config --global --add safe.directory "*" && \\
 WORKDIR /projects
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
-ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+# Invoke via /bin/bash so a Windows bind-mounted entrypoint.sh without +x still starts.
+ENTRYPOINT ["/bin/bash", "/usr/local/bin/entrypoint.sh"]
 CMD ["sleep", "infinity"]
 `;
 }

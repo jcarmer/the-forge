@@ -9,10 +9,12 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@tailwindcss/vite": "^4.3.5",
     "@tbe/ui": "^0.1.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "reend-components": "^1.2.2"
+    "tailwindcss": "^4.3.5",
+    "wouter": "^3.13.0"
   },
   "devDependencies": {
     "@types/react": "^19.0.0",

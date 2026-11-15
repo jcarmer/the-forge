@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import manifest from "../sandbox.config.js";
@@ -17,6 +17,9 @@ import { buildProvisionSteps, checkAuthStatus, runProvision } from "./provision/
 import { listProjects, scanContext } from "./context/inventory.js";
 import { getSession, listSessions, windowTotals } from "./sessions/parse.js";
 import { annotateWithOllama, deterministicFlags } from "./sessions/analyze.js";
+import { buildOverview, loadStories, renderDigest } from "./sessions/digest.js";
+import { renderStoryText, storyForFile } from "./sessions/story.js";
+import { listSessionFiles, defaultSources } from "./sessions/parse.js";
 import { executeTask } from "./worker/runner.js";
 import { taskStorePath, upsertTaskRecord } from "./worker/taskStore.js";
 
@@ -162,6 +165,32 @@ switch (cmd) {
     break;
   }
   case "sessions": {
+    if (rest[0] === "digest") {
+      // Markdown brief of recent conversations, meant to be handed to an LLM for workflow advice.
+      const flag = (n: string) => { const i = rest.indexOf(n); return i >= 0 ? rest[i + 1] : undefined; };
+      const days = Number(flag("--days") ?? 7);
+      const redact = rest.includes("--redact");
+      const stories = loadStories(days, { redact });
+      const md = renderDigest(stories, buildOverview(stories, days), { redact });
+      const out = flag("--out");
+      if (out) {
+        writeFileSync(out, md);
+        console.log(`Wrote ${md.length} characters (${stories.length} conversations) to ${out}`);
+      } else console.log(md);
+      break;
+    }
+    if (rest[0] === "story") {
+      // Narrative of one conversation: turns, timing, tools, and findings.
+      const q = rest[1];
+      const f = q && q.length >= 8 ? listSessionFiles(defaultSources()).find((x) => x.file.includes(q)) : undefined;
+      if (!f) {
+        console.error(q ? `No session matching ${q}` : "Usage: the-forge sessions story <id>");
+        process.exitCode = 1;
+        break;
+      }
+      console.log(renderStoryText(storyForFile(f.file, f.source, { redact: rest.includes("--redact") })));
+      break;
+    }
     const id = rest.find((a) => !a.startsWith("--"));
     const week = windowTotals();
     if (!id) {
