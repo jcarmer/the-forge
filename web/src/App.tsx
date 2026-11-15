@@ -22,6 +22,29 @@ function tabFromPath(path: string): TabKey {
   return (TAB_KEYS as readonly string[]).includes(seg) ? (seg as TabKey) : "services";
 }
 
+const TAB_KEYS: TabKey[] = ["services", "diagnostics", "usage", "packages", "tasks", "context", "sessions"];
+
+function tabFromPath(): TabKey {
+  const seg = window.location.pathname.replace(/^\/+|\/+$/g, "").split("/")[0] ?? "";
+  return (TAB_KEYS as string[]).includes(seg) ? (seg as TabKey) : "services";
+}
+
+/** Tab state mirrored in the URL path so refresh and back/forward keep your place. */
+function useTabRoute(): [TabKey, (k: TabKey) => void] {
+  const [tab, setTabState] = useState<TabKey>(tabFromPath);
+  useEffect(() => {
+    const onPop = () => setTabState(tabFromPath());
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+  const setTab = useCallback((k: TabKey) => {
+    setTabState(k);
+    const path = `/${k}`;
+    if (window.location.pathname !== path) window.history.pushState(null, "", path + window.location.search);
+  }, []);
+  return [tab, setTab];
+}
+
 export function App() {
   const { state, connected, error, reload } = useForgeState();
   const [location, navigate] = useLocation();
