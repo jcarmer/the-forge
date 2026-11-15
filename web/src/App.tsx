@@ -1,4 +1,5 @@
-import { useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
+import { useLocation } from "wouter";
 import { darkTheme, ThemeProvider, UI } from "@tbe/ui";
 import { Badge, Button, Heading, Pane, Tabs, TabsContent, TabsList, TabsTrigger, Text } from "./components";
 import { useForgeState } from "./hooks/useForgeState";
@@ -13,11 +14,19 @@ import { GitView } from "./views/GitView";
 import { useGitRepos } from "./hooks/useGitRepos";
 import { attentionCount } from "./views/gitTileChips";
 
-type TabKey = "services" | "diagnostics" | "usage" | "packages" | "tasks" | "context" | "sessions" | "git";
+const TAB_KEYS = ["services", "diagnostics", "usage", "packages", "tasks", "context", "sessions", "git"] as const;
+type TabKey = (typeof TAB_KEYS)[number];
+
+function tabFromPath(path: string): TabKey {
+  const seg = path.split("/")[1] ?? "";
+  return (TAB_KEYS as readonly string[]).includes(seg) ? (seg as TabKey) : "services";
+}
 
 export function App() {
   const { state, connected, error, reload } = useForgeState();
-  const [tab, setTab] = useState<TabKey>("services");
+  const [location, navigate] = useLocation();
+  const tab = tabFromPath(location);
+  const setTab = (k: TabKey) => navigate(`/${k}`);
 
   const failCount =
     (state?.diagnostics.checks.filter((c) => !c.ok).length ?? 0) +
