@@ -331,13 +331,13 @@ export function createForgeRequestHandler(ctx: ForgeApiContext, hub: ForgeStateH
       }
 
       if (req.method === "GET" && pathname === "/api/sessions/overview") {
-        const days = Math.min(90, Math.max(1, Number(url.searchParams.get("days")) || 7));
+        const days = Math.min(90, Math.max(0.25, Number(url.searchParams.get("days")) || 7));
         const stories = loadStories(days);
         return sendJson(res, 200, { overview: buildOverview(stories, days) });
       }
 
       if (req.method === "GET" && pathname === "/api/sessions/digest") {
-        const days = Math.min(90, Math.max(1, Number(url.searchParams.get("days")) || 7));
+        const days = Math.min(90, Math.max(0.25, Number(url.searchParams.get("days")) || 7));
         const redact = url.searchParams.get("redact") === "1";
         const stories = loadStories(days, { redact });
         return sendJson(res, 200, { markdown: renderDigest(stories, buildOverview(stories, days), { redact }) });

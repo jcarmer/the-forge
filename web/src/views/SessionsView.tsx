@@ -234,8 +234,8 @@ export function SessionsView() {
         <UI.VStack spacing={UI.Size.px(10)} align="stretch">
           <UI.HStack spacing={UI.Size.px(10)} align="center">
             <Heading>Workflow overview</Heading>
-            {[7, 14, 30].map((d) => (
-              <Button key={d} variant={days === d ? "primary" : "secondary"} size="sm" onClick={() => setDays(d)}>{`${d}d`}</Button>
+            {[0.5, 1, 7, 14, 30].map((d) => (
+              <Button key={d} variant={days === d ? "primary" : "secondary"} size="sm" onClick={() => setDays(d)}>{d < 1 ? `${d * 24}h` : d === 1 ? "24h" : `${d}d`}</Button>
             ))}
             <UI.Spacer />
             <Button variant="primary" size="sm" onClick={() => void copyBrief(false)}>Copy advisor brief</Button>

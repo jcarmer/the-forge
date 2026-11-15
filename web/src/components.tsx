@@ -94,16 +94,22 @@ type ButtonProps = Omit<ButtonHTMLAttributes<HTMLButtonElement>, "color"> & {
   loading?: boolean;
 };
 
+const DISABLED_GRAY = "#5b6168";
+const DISABLED_TEXT = "#aab0b6";
+
 /** Corner-cut button. primary = solid, secondary/ghost = outline/ghost. */
 export function Button({ variant = "primary", size = "sm", loading = false, disabled, children, ...rest }: ButtonProps) {
-  const style: CSSProperties = { opacity: disabled || loading ? 0.5 : 1, cursor: disabled || loading ? "not-allowed" : "pointer" };
+  const style: CSSProperties = { opacity: loading ? 0.5 : disabled ? 0.85 : 1, cursor: disabled || loading ? "not-allowed" : "pointer" };
+  // Disabled (but not merely loading) buttons turn a medium-dark gray so they read as inactive.
+  const grayed = Boolean(disabled) && !loading;
   return (
     <CornerCutButton
-      color={COLOR[variant]}
+      color={grayed ? DISABLED_GRAY : COLOR[variant]}
+      textColor={grayed ? DISABLED_TEXT : undefined}
+      hoverEffect={grayed ? "none" : "glow"}
       variant={variant === "primary" ? "solid" : variant === "ghost" ? "ghost" : "outline"}
       size={size === "sm" ? "sm" : "md"}
       cornerSize={12}
-      hoverEffect="glow"
       disabled={disabled || loading}
       style={style}
       {...rest}

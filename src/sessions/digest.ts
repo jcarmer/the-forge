@@ -147,7 +147,7 @@ export const ADVISOR_PROMPT = [
 /** Markdown brief meant to be pasted to (or read by) an LLM. `redact` removes prompts, commands and paths. */
 export function renderDigest(stories: SessionStory[], o: Overview, opts: { redact?: boolean; maxSessions?: number } = {}): string {
   const L: string[] = [];
-  L.push(`# Forge workflow digest - last ${o.days} days`, "", ADVISOR_PROMPT, "");
+  L.push(`# Forge workflow digest - last ${o.days < 1 ? `${Math.round(o.days * 24)} hours` : `${o.days} days`}`, "", ADVISOR_PROMPT, "");
   L.push("## Totals", "");
   L.push(`- ${o.sessions} conversations, ${o.turns} turns, ${o.calls} tool calls`);
   L.push(`- Wall time ${dur(o.wallMs)}: active ${dur(o.activeMs)} (${pct(o.activeMs, o.wallMs)}), idle between turns ${dur(o.idleMs)}`);

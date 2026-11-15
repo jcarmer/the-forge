@@ -70,7 +70,7 @@ export function CommitDialog({
           <Button variant="ghost" disabled={ctx.busy !== null} onClick={onClose}>
             Cancel
           </Button>
-          <Button variant="primary" loading={ctx.busy === "commit"} disabled={ctx.busy !== null || drafting || !message.trim() || selected.length === 0} onClick={() => void submit()}>
+          <Button variant="primary" loading={ctx.busy === "commit"} disabled={ctx.busy !== null || !message.trim() || selected.length === 0} onClick={() => void submit()}>
             Commit + push
           </Button>
         </Row>
