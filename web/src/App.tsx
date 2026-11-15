@@ -10,18 +10,19 @@ import { PackagesReposView } from "./views/PackagesReposView";
 import { TasksView } from "./views/TasksView";
 import { ContextView } from "./views/ContextView";
 import { SessionsView } from "./views/SessionsView";
+import { DashboardView } from "./views/DashboardView";
 import { GitView } from "./views/GitView";
 import { useGitRepos } from "./hooks/useGitRepos";
 import { attentionCount } from "./views/gitTileChips";
 import mjolnir from './../../mjolnir.webp';
 
 
-const TAB_KEYS = ["services", "diagnostics", "usage", "packages", "tasks", "context", "sessions", "git"] as const;
+const TAB_KEYS = ["dashboard", "services", "diagnostics", "usage", "packages", "tasks", "context", "sessions", "git"] as const;
 type TabKey = (typeof TAB_KEYS)[number];
 
 function tabFromPath(path: string): TabKey {
   const seg = path.split("/")[1] ?? "";
-  return (TAB_KEYS as readonly string[]).includes(seg) ? (seg as TabKey) : "services";
+  return (TAB_KEYS as readonly string[]).includes(seg) ? (seg as TabKey) : "dashboard";
 }
 
 export function App() {
@@ -41,6 +42,8 @@ export function App() {
 
   const tabs: { key: TabKey; title: string; content: ReactNode }[] = state
     ? [
+        { key: "dashboard", title: "Dashboard", content: <DashboardView /> },
+        { key: "git", title: gitAttention > 0 ? `Git (${gitAttention})` : "Git", content: <GitView git={git} /> },
         {
           key: "services",
           title: `Services (${state.services.length})`,
@@ -54,8 +57,7 @@ export function App() {
           ),
         },
         { key: "context", title: "AI Context", content: <ContextView usage={state.usage} /> },
-        { key: "sessions", title: "Sessions", content: <SessionsView /> },
-        { key: "git", title: gitAttention > 0 ? `Git (${gitAttention})` : "Git", content: <GitView git={git} /> },
+        { key: "sessions", title: "Sessions", content: <SessionsView /> }
       ]
     : [];
 
@@ -82,22 +84,23 @@ export function App() {
               <Text>Connecting to Forge state stream...</Text>
             </Pane>
           ) : (
-            <UI.Scroll height={UI.Size.fill(1)}>
-              <Tabs value={tab} onValueChange={(k) => setTab(k as TabKey)}>
-                <TabsList>
-                  {tabs.map((t) => (
-                    <TabsTrigger key={t.key} value={t.key}>
-                      {t.title}
-                    </TabsTrigger>
-                  ))}
-                </TabsList>
+            <Tabs value={tab} onValueChange={(k) => setTab(k as TabKey)}>
+              {/* Tab bar stays outside the scroll area so it is always visible. */}
+              <TabsList>
+                {tabs.map((t) => (
+                  <TabsTrigger key={t.key} value={t.key}>
+                    {t.title}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+              <UI.Scroll height={UI.Size.fill(1)}>
                 {tabs.map((t) => (
                   <TabsContent key={t.key} value={t.key}>
                     <div style={{ paddingTop: 12 }}>{t.content}</div>
                   </TabsContent>
                 ))}
-              </Tabs>
-            </UI.Scroll>
+              </UI.Scroll>
+            </Tabs>
           )}
         </UI.VStack>
       </UI.Padded>

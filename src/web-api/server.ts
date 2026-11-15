@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { extname, join, normalize, resolve } from "node:path";
@@ -19,6 +20,7 @@ import { buildPackage, pushRepo, readPackageApiDts, scanPackages, scanRepos, tog
 import { summarizeAllRepos, summarizeRepo } from "../git/repoSummary.js";
 import { RepoActionError } from "../git/repoResolve.js";
 import { handleRepoRoute, matchRepoRoute } from "../git/repoActions.js";
+import { discoverWorkspaces, loadConfig, mergeTiles, parseConfig, presetTiles, saveConfig } from "../dashboard/store.js";
 import type { ForgeState, ServiceStatus, TaskRecord } from "../state/forgeState.js";
 
 export interface ServiceController {
@@ -376,6 +378,36 @@ export function createForgeRequestHandler(ctx: ForgeApiContext, hub: ForgeStateH
         const result = await ctx.services.controlTarget(body.name, body.action);
         await hub.refreshFast();
         return sendJson(res, result.ok ? 200 : 400, result);
+      }
+
+      if (req.method === "GET" && pathname === "/api/dashboard") {
+        const available = [...presetTiles(ctx.manifest), ...discoverWorkspaces(ctx.projectsRoot)];
+        return sendJson(res, 200, { hostname: ctx.manifest.network.tailscaleHostname, tiles: mergeTiles(available, loadConfig(ctx.stateDir)) });
+      }
+
+      if (req.method === "PUT" && pathname === "/api/dashboard") {
+        const body = await readJsonObjectLimited(req);
+        const cfg = body && parseConfig(body);
+        if (!cfg) return sendJson(res, 400, { error: "invalid dashboard config" });
+        saveConfig(ctx.stateDir, cfg);
+        return sendJson(res, 200, { ok: true });
+      }
+
+      // Runs a saved custom tile's command inside the container. Looked up by id so the browser never sends a command to run.
+      if (req.method === "POST" && pathname === "/api/actions/dashboard-run") {
+        const body = await readJsonObjectLimited(req);
+        const tile = loadConfig(ctx.stateDir).custom.find((c) => c.id === body?.id);
+        if (!tile?.command) return sendJson(res, 404, { error: "no saved command for that tile" });
+        const out = await new Promise<{ ok: boolean; output: string }>((done) => {
+          const child = spawn("bash", ["-lc", tile.command!], { cwd: ctx.projectsRoot, timeout: 30_000 });
+          let buf = "";
+          const add = (d: Buffer) => { if (buf.length < 20_000) buf += d.toString("utf8"); };
+          child.stdout.on("data", add);
+          child.stderr.on("data", add);
+          child.on("error", (e) => done({ ok: false, output: e.message }));
+          child.on("close", (code) => done({ ok: code === 0, output: buf.trim() || `(exit ${code}, no output)` }));
+        });
+        return sendJson(res, out.ok ? 200 : 500, out);
       }
 
       if (req.method === "POST" && pathname === "/api/actions/t3-pair") {
