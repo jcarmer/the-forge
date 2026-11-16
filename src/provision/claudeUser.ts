@@ -40,6 +40,11 @@ export function mergeHookSettings(existing: Json, command: string): Json {
   return { ...existing, hooks };
 }
 
+/** The installed CLAUDE.md only points at the repo file, so the repo stays the single copy of the guidance. */
+function guidancePointer(p: ClaudeUserPaths) {
+  return `@${join(p.repoDir, "ops/claude-user/CLAUDE.md")}`;
+}
+
 function guardCommand(p: ClaudeUserPaths) {
   return `node ${join(p.repoDir, "ops/claude-user", GUARD_MARKER)}`;
 }
@@ -72,7 +77,7 @@ function skillsCurrent(p: ClaudeUserPaths): boolean {
 
 export function isClaudeUserConfigCurrent(p: ClaudeUserPaths = defaults): boolean {
   try {
-    const guidance = readFileSync(join(p.repoDir, "ops/claude-user/CLAUDE.md"), "utf8");
+    const guidance = guidancePointer(p);
     const md = join(p.claudeDir, "CLAUDE.md");
     if (!existsSync(md) || mergeManagedBlock(readFileSync(md, "utf8"), guidance) !== readFileSync(md, "utf8")) return false;
     const settings = readSettings(join(p.claudeDir, "settings.json"));
@@ -84,7 +89,7 @@ export function isClaudeUserConfigCurrent(p: ClaudeUserPaths = defaults): boolea
 }
 
 export function installClaudeUserConfig(p: ClaudeUserPaths = defaults): void {
-  const guidance = readFileSync(join(p.repoDir, "ops/claude-user/CLAUDE.md"), "utf8");
+  const guidance = guidancePointer(p);
   mkdirSync(p.claudeDir, { recursive: true });
 
   const md = join(p.claudeDir, "CLAUDE.md");

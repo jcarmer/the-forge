@@ -64,7 +64,7 @@ describe("install step", () => {
     expect(isClaudeUserConfigCurrent(p)).toBe(false);
     installClaudeUserConfig(p);
     expect(isClaudeUserConfigCurrent(p)).toBe(true);
-    expect(readFileSync(join(claudeDir, "CLAUDE.md"), "utf8")).toContain("be brief");
+    expect(readFileSync(join(claudeDir, "CLAUDE.md"), "utf8")).toContain(`@${join(repoDir, "ops/claude-user/CLAUDE.md")}`);
     expect(readFileSync(join(claudeDir, "settings.json"), "utf8")).toContain("bash-guard.mjs");
     rmSync(claudeDir, { recursive: true, force: true });
     expect(isClaudeUserConfigCurrent(p)).toBe(false);
@@ -79,11 +79,11 @@ describe("install step", () => {
     expect(readFileSync(join(claudeDir, "settings.json"), "utf8")).toBe("{ not json");
   });
 
-  it("picks up a changed guidance file", () => {
+  it("edits to the guidance file need no reinstall because the installed file only points at it", () => {
     const p = { repoDir, claudeDir };
     installClaudeUserConfig(p);
     writeFileSync(join(repoDir, "ops/claude-user/CLAUDE.md"), "# Rules\nnew rule\n");
-    expect(isClaudeUserConfigCurrent(p)).toBe(false);
+    expect(isClaudeUserConfigCurrent(p)).toBe(true);
   });
 });
 
@@ -110,6 +110,25 @@ describe("bash guard", () => {
     expect(checkBashCommand(`cat > ${join(root, "out.txt")} <<'EOF'\nhello\nEOF`)).toBeNull();
     expect(checkBashCommand("cat does-not-exist.txt", root)).toBeNull();
     expect(checkBashCommand(`cat ${big}`, root, { FORGE_BASH_GUARD: "off" })).toBeNull();
+  });
+
+  it("counts every cat in a compound command, and limits sed ranges, find and ls -R", () => {
+    const a = join(root, "a.log");
+    const b = join(root, "b.log");
+    writeFileSync(a, "x".repeat(40 * 1024));
+    writeFileSync(b, "x".repeat(40 * 1024));
+    expect(checkBashCommand(`cat ${a}; echo ---; cat ${b}`)).toMatch(/Blocked/);
+    expect(checkBashCommand(`cd ${root} && cat a.log b.log && echo done`)).toMatch(/Blocked/);
+    expect(checkBashCommand(`cat ${a}; echo ---; cat ${a} | head -3`)).toBeNull();
+    expect(checkBashCommand("sed -n 1,90p src/x.ts")).toBeNull();
+    expect(checkBashCommand("sed -n '1,2000p' src/x.ts")).toMatch(/Blocked/);
+    expect(checkBashCommand("sed -n '10,$p' src/x.ts")).toMatch(/Blocked/);
+    expect(checkBashCommand("find . -name '*.ts'")).toMatch(/Blocked/);
+    expect(checkBashCommand("find . -name '*.ts' | head -20")).toBeNull();
+    expect(checkBashCommand("find . -maxdepth 2 -name '*.ts'")).toBeNull();
+    expect(checkBashCommand("ls -R src")).toMatch(/Blocked/);
+    expect(checkBashCommand("ls -R src | head -30")).toBeNull();
+    expect(checkBashCommand("ls -la src")).toBeNull();
   });
 
   it("works as a real hook process: exit 2 with a reason, exit 0 otherwise or on bad input", () => {
