@@ -182,7 +182,7 @@ export function Tabs({ value, onValueChange, children }: { value: string; onValu
 
 export function TabsList({ children }: { children: ReactNode }) {
   return (
-    <div role="tablist" style={{ display: "flex", flexWrap: "wrap", gap: 4, borderBottom: "1px solid rgb(0 243 255 / 0.25)" }}>
+    <div role="tablist" style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
       {children}
     </div>
   );
