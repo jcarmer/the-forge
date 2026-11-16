@@ -3,18 +3,17 @@ import { UI } from "@tbe/ui";
 import { Badge, Button, Choice, Heading, Input, Pane, Text } from "../components";
 import type { RepoStatus, TaskComplexity, TaskRecord } from "../types";
 import { postAction } from "../hooks/useForgeState";
+import { showError, showToast } from "../components/Toast";
 
 export function TasksView({ tasks, repos }: { tasks: TaskRecord[]; repos: RepoStatus[] }) {
   const [repoDir, setRepoDir] = useState(repos[0]?.path ?? "/projects/tbe");
   const [complexity, setComplexity] = useState<TaskComplexity>("normal");
   const [prompt, setPrompt] = useState("");
   const [busy, setBusy] = useState(false);
-  const [notice, setNotice] = useState<string | null>(null);
 
   async function handleDispatch() {
     if (!prompt.trim()) return;
     setBusy(true);
-    setNotice(null);
     try {
       await postAction("/api/actions/dispatch", {
         repoDir: repoDir || repos[0]?.path || "/projects/tbe",
@@ -22,9 +21,9 @@ export function TasksView({ tasks, repos }: { tasks: TaskRecord[]; repos: RepoSt
         prompt: prompt.trim(),
       });
       setPrompt("");
-      setNotice("Task dispatched to isolated worktree.");
+      showToast("success", "Task dispatched to isolated worktree.");
     } catch (e) {
-      setNotice(e instanceof Error ? e.message : String(e));
+      showError(e);
     } finally {
       setBusy(false);
     }
@@ -64,7 +63,6 @@ export function TasksView({ tasks, repos }: { tasks: TaskRecord[]; repos: RepoSt
               {busy ? "Dispatching..." : "Dispatch"}
             </Button>
           </UI.HStack>
-          {notice && <Badge variant="info">{notice}</Badge>}
         </UI.VStack>
       </Pane>
 

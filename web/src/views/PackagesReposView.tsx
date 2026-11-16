@@ -3,6 +3,7 @@ import { UI } from "@tbe/ui";
 import { Badge, Button, Heading, Pane, Text, TextDialog } from "../components";
 import type { PackageStatus, RepoStatus } from "../types";
 import { postAction } from "../hooks/useForgeState";
+import { showError, showToast } from "../components/Toast";
 
 export function PackagesReposView({
   packages,
@@ -12,17 +13,15 @@ export function PackagesReposView({
   repos: RepoStatus[];
 }) {
   const [busy, setBusy] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
   const [apiModal, setApiModal] = useState<{ name: string; content: string } | null>(null);
 
   async function toggleLink(pkg: string, consumer: string, enable: boolean) {
     setBusy(`${pkg}:${consumer}`);
-    setNotice(null);
     try {
       const res = await postAction<{ detail: string }>("/api/actions/package-link", { pkg, consumer, enable });
-      setNotice(res.detail);
+      showToast("success", res.detail);
     } catch (e) {
-      setNotice(e instanceof Error ? e.message : String(e));
+      showError(e);
     } finally {
       setBusy(null);
     }
@@ -30,12 +29,11 @@ export function PackagesReposView({
 
   async function rebuildPkg(pkg: string) {
     setBusy(`build:${pkg}`);
-    setNotice(null);
     try {
       const res = await postAction<{ detail: string }>("/api/actions/package-build", { pkg });
-      setNotice(res.detail);
+      showToast("success", res.detail);
     } catch (e) {
-      setNotice(e instanceof Error ? e.message : String(e));
+      showError(e);
     } finally {
       setBusy(null);
     }
@@ -43,12 +41,11 @@ export function PackagesReposView({
 
   async function pushRepoBranch(repo: string) {
     setBusy(`push:${repo}`);
-    setNotice(null);
     try {
       const res = await postAction<{ detail: string }>("/api/actions/repo-push", { repo });
-      setNotice(res.detail);
+      showToast("success", res.detail);
     } catch (e) {
-      setNotice(e instanceof Error ? e.message : String(e));
+      showError(e);
     } finally {
       setBusy(null);
     }
@@ -56,12 +53,11 @@ export function PackagesReposView({
 
   async function syncAll() {
     setBusy("sync");
-    setNotice(null);
     try {
       const res = await postAction<{ updated: string[] }>("/api/actions/sync");
-      setNotice(res.updated.length ? `Updated: ${res.updated.join(", ")}` : "All worktrees up to date.");
+      showToast("success", res.updated.length ? `Updated: ${res.updated.join(", ")}` : "All worktrees up to date.");
     } catch (e) {
-      setNotice(e instanceof Error ? e.message : String(e));
+      showError(e);
     } finally {
       setBusy(null);
     }
@@ -79,7 +75,6 @@ export function PackagesReposView({
         <Button variant="primary" size="sm" loading={busy === "sync"} disabled={busy !== null} onClick={() => void syncAll()}>
           {busy === "sync" ? "Syncing..." : "Sync Worktrees"}
         </Button>
-        {notice && <Badge variant="info">{notice}</Badge>}
       </UI.HStack>
 
       <Pane padding={12}>

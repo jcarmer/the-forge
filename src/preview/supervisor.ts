@@ -1,5 +1,5 @@
 import { execFile, spawn, type ChildProcess } from "node:child_process";
-import { createWriteStream, existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createWriteStream, existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -76,26 +76,48 @@ export async function syncPreviewWorktrees(projectsRoot: string, integrationBran
   return updated;
 }
 
-/** Rebuilds and reinstalls TBE's VS Code extension into the tunnel server whenever its source changes. */
+/** What the extension bundles: its own source and every modelling package it is built from (the viewer, the evaluator, the kernel, ...). */
+const EXTENSION_PATHS = ["tools/vscode", "tools/modeling"];
+
+/**
+ * A fingerprint of the extension's inputs: the committed trees, plus every uncommitted or untracked file (name, mtime and size), because the agents
+ * edit the checkout in place and the extension should follow without waiting for a commit.
+ */
+async function extensionRevision(tbeDir: string): Promise<string> {
+  const head = (await runAsync("git", ["-C", tbeDir, "rev-parse", ...EXTENSION_PATHS.map((p) => `HEAD:${p}`)])).out.trim();
+  const status = (await runAsync("git", ["-C", tbeDir, "status", "--porcelain=v1", "-z", "--untracked-files=all", "--", ...EXTENSION_PATHS])).out;
+  const dirty = status.split("\0").filter(Boolean).map((entry) => {
+    try {
+      const st = statSync(join(tbeDir, entry.slice(3)));
+      return `${entry}:${st.mtimeMs}:${st.size}`;
+    } catch { return entry; }
+  });
+  return [head, ...dirty].join("\n");
+}
+
+/** Rebuilds and reinstalls TBE's VS Code extension into the tunnel server whenever its source (or any package it bundles) changes. A running window is told by the extension itself, which notices the new build on disk. */
 export async function syncTbeVscodeExtension(projectsRoot: string): Promise<boolean> {
   const tbeDir = join(projectsRoot, "tbe");
   const extDir = join(tbeDir, "tools", "vscode");
   if (!existsSync(extDir)) return false;
 
-  const rev = (await runAsync("git", ["-C", tbeDir, "rev-parse", "HEAD:tools/vscode", "HEAD:tools/modeling/viewer"])).out.trim();
+  const rev = await extensionRevision(tbeDir);
   const stamp = "/tmp/tbe-vscode.rev";
-  if (rev && existsSync(stamp) && readFileSync(stamp, "utf8").trim() === rev) return false;
+  if (existsSync(stamp) && readFileSync(stamp, "utf8") === rev) return false;
 
   const cmd = [
     "cd /projects/tbe/tools/modeling/viewer && pnpm build",
     "cd /projects/tbe/tools/vscode && pnpm build && pnpm package",
     "for srv in /root/.vscode/cli/servers/*/server/bin/code-server; do [ -x \"$srv\" ] && \"$srv\" --install-extension /projects/tbe/tools/vscode/tbe-vscode.vsix --force; done",
   ].join(" && ");
-  const r = await runAsync("bash", ["-lc", cmd], 120_000);
-  if (r.code === 0 && rev) {
+  const r = await runAsync("bash", ["-lc", cmd], 300_000);
+  if (r.code === 0) {
     writeFileSync(stamp, rev, "utf8");
+    console.log("[tbe-vscode] extension rebuilt and installed");
     return true;
   }
+  // Leave the stamp alone so the next tick tries again; say why, or a broken build looks like "no update".
+  console.error(`[tbe-vscode] extension build failed (exit ${r.code}):\n${r.out.split("\n").slice(-25).join("\n")}`);
   return false;
 }
 

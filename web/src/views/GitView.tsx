@@ -6,9 +6,10 @@ import type { GitReposState } from "../hooks/useGitRepos";
 import GitRepoDetail from "./GitRepoDetail";
 import { attentionCount, branchNames, filterRepos, isClean, tileChips, tileQuickActions, type RepoFilter } from "./gitTileChips";
 import { PrDialog } from "./git/PrDialog";
-import { noticeFrom, type NoticeData } from "./git/notice";
+import { noticeFrom } from "./git/notice";
+import { showNotice } from "../components/Toast";
 import { DETACHED_BRANCH, isDetached } from "./git/selection";
-import { MONO, Notice, Row, type ActionCtx } from "./git/ui";
+import { MONO, Row, type ActionCtx } from "./git/ui";
 
 function stop(e: MouseEvent) {
   e.stopPropagation();
@@ -17,16 +18,12 @@ function stop(e: MouseEvent) {
 function RepoTile({
   repo,
   busyKey,
-  notice,
-  onDismissNotice,
   onSelect,
   onRunAction,
   onOpenPrDialog,
 }: {
   repo: GitRepoSummary;
   busyKey: string | null;
-  notice?: NoticeData;
-  onDismissNotice: () => void;
   onSelect: () => void;
   onRunAction: (key: string, title: string, fn: () => Promise<GitActionResult>) => void;
   onOpenPrDialog: () => void;
@@ -247,11 +244,6 @@ function RepoTile({
             </div>
           )}
 
-          {notice && (
-            <div onClick={stop}>
-              <Notice notice={notice} onDismiss={onDismissNotice} />
-            </div>
-          )}
         </div>
       </Pane>
     </div>
@@ -272,7 +264,6 @@ export function GitView({ git }: { git: GitReposState }) {
   const [filter, setFilter] = useState<RepoFilter>("all");
   const [busyByRepo, setBusyByRepo] = useState<Record<string, string | null>>({});
   const busyRef = useRef<Record<string, string | null>>({});
-  const [notices, setNotices] = useState<Record<string, NoticeData | undefined>>({});
   const [prModalRepo, setPrModalRepo] = useState<string | null>(null);
 
   const runForRepo = useCallback(
@@ -286,7 +277,7 @@ export function GitView({ git }: { git: GitReposState }) {
       if (busyRef.current[repoName]) return null;
       busyRef.current[repoName] = key;
       setBusyByRepo((prev) => ({ ...prev, [repoName]: key }));
-      setNotices((prev) => ({ ...prev, [repoName]: undefined }));
+      showNotice(null);
       let result: GitActionResult;
       try {
         result = await fn();
@@ -294,7 +285,7 @@ export function GitView({ git }: { git: GitReposState }) {
         result = { ok: false, detail: e instanceof Error ? e.message : String(e) };
       }
       if (!(opts?.inline && !result.ok)) {
-        setNotices((prev) => ({ ...prev, [repoName]: noticeFrom(title, result) }));
+        showNotice(noticeFrom(title, result));
       }
       try {
         await reloadRepo(repoName);
@@ -313,7 +304,7 @@ export function GitView({ git }: { git: GitReposState }) {
     return {
       busy: busyByRepo[prTarget.name] ?? null,
       run: (k, title, fn, o) => runForRepo(prTarget.name, k, title, fn, o),
-      notify: (n) => setNotices((prev) => ({ ...prev, [prTarget.name]: n ?? undefined })),
+      notify: showNotice,
     };
   }, [prTarget, busyByRepo, runForRepo]);
 
@@ -392,8 +383,6 @@ export function GitView({ git }: { git: GitReposState }) {
               <RepoTile
                 repo={r}
                 busyKey={busyByRepo[r.name] ?? null}
-                notice={notices[r.name]}
-                onDismissNotice={() => setNotices((prev) => ({ ...prev, [r.name]: undefined }))}
                 onSelect={() => setSelectedRepo(r.name)}
                 onRunAction={(key, title, fn) => void runForRepo(r.name, key, title, fn)}
                 onOpenPrDialog={() => setPrModalRepo(r.name)}

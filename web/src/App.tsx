@@ -12,6 +12,7 @@ import { ContextView } from "./views/ContextView";
 import { SessionsView } from "./views/SessionsView";
 import { DashboardView } from "./views/DashboardView";
 import { GitView } from "./views/GitView";
+import { ToastHost } from "./components/Toast";
 import { useGitRepos } from "./hooks/useGitRepos";
 import { attentionCount } from "./views/gitTileChips";
 import mjolnir from './../../mjolnir.webp';
@@ -104,6 +105,7 @@ export function App() {
           )}
         </UI.VStack>
       </UI.Padded>
+      <ToastHost />
     </ThemeProvider>
   );
 }

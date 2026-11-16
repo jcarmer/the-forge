@@ -3,11 +3,11 @@ import { UI } from "@tbe/ui";
 import { Badge, Button, Heading, Pane, Text, TextDialog } from "../components";
 import type { ServiceStatus } from "../types";
 import { postAction } from "../hooks/useForgeState";
+import { showError, showToast } from "../components/Toast";
 
 export function ServicesView({ services, hostname }: { services: ServiceStatus[]; hostname: string }) {
   const [logModal, setLogModal] = useState<{ name: string; content: string } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
 
   const [pair, setPair] = useState<{ credential: string; expiresAt: string } | null>(null);
   const [pairError, setPairError] = useState<string | null>(null);
@@ -30,12 +30,11 @@ export function ServicesView({ services, hostname }: { services: ServiceStatus[]
 
   async function handleControl(name: string, action: "start" | "stop" | "restart") {
     setBusy(`${name}:${action}`);
-    setNotice(null);
     try {
       const res = await postAction<{ detail: string }>("/api/actions/service", { name, action });
-      setNotice(res.detail);
+      showToast("success", res.detail);
     } catch (e) {
-      setNotice(e instanceof Error ? e.message : String(e));
+      showError(e);
     } finally {
       setBusy(null);
     }
@@ -59,7 +58,6 @@ export function ServicesView({ services, hostname }: { services: ServiceStatus[]
           <a href={`https://vscode.dev/tunnel/${hostname}/projects`} target="_blank" rel="noreferrer">
             vscode.dev/tunnel/{hostname}/projects
           </a>
-          {notice && <Badge variant="info">{notice}</Badge>}
         </UI.HStack>
       </Pane>
 

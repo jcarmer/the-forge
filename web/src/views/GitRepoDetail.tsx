@@ -14,9 +14,10 @@ import { PrDialog } from "./git/PrDialog";
 import { NewBranchPrDialog } from "./git/NewBranchPrDialog";
 import { RepoHeader } from "./git/RepoHeader";
 import { SummaryPanel } from "./git/SummaryPanel";
-import { noticeFrom, type NoticeData } from "./git/notice";
+import { noticeFrom } from "./git/notice";
 import { guessBaseBranch, isDetached, isSubset, pruneDeselected, selectAll, selectNone, selectedFiles, summarySignature, toggleSelected } from "./git/selection";
-import { Notice, type ActionCtx } from "./git/ui";
+import { type ActionCtx } from "./git/ui";
+import { showNotice } from "../components/Toast";
 import { useAiSummary } from "./git/useAiSummary";
 
 type DialogState = { kind: "commit" } | { kind: "pr"; branch?: string } | { kind: "new-branch-pr" } | { kind: "discard"; files: GitChangedFile[]; scope: string } | { kind: "delete-branches"; names: string[] } | null;
@@ -40,7 +41,6 @@ export default function GitRepoDetail({
   const data = useGitRepoData(name);
   const [busy, setBusy] = useState<string | null>(null);
   const busyRef = useRef<string | null>(null);
-  const [notice, setNotice] = useState<NoticeData | null>(null);
   const [dialog, setDialog] = useState<DialogState>(null);
   const [deselected, setDeselected] = useState<ReadonlySet<string>>(selectAll);
   const [branchSel, setBranchSel] = useState<ReadonlySet<string>>(new Set());
@@ -56,7 +56,7 @@ export default function GitRepoDetail({
 
   // A different repo (or its removal) resets page-local state.
   useEffect(() => {
-    setNotice(null);
+    showNotice(null);
     setDialog(null);
     setDeselected(selectAll());
     setBranchSel(new Set());
@@ -70,14 +70,14 @@ export default function GitRepoDetail({
     if (busyRef.current) return null;
     busyRef.current = key;
     setBusy(key);
-    setNotice(null);
+    showNotice(null);
     let result: GitActionResult;
     try {
       result = await fn();
     } catch (e) {
       result = { ok: false, detail: e instanceof Error ? e.message : String(e) };
     }
-    if (!(opts?.inline && !result.ok)) setNotice(noticeFrom(title, result));
+    if (!(opts?.inline && !result.ok)) showNotice(noticeFrom(title, result));
     // Even a failed action can have changed the repo (e.g. committed but not pushed): always refresh.
     try {
       await refreshRef.current();
@@ -89,7 +89,7 @@ export default function GitRepoDetail({
     return result;
   }, []);
 
-  const ctx = useMemo<ActionCtx>(() => ({ busy, run, notify: setNotice }), [busy, run]);
+  const ctx = useMemo<ActionCtx>(() => ({ busy, run, notify: showNotice }), [busy, run]);
 
   const selected = selectedFiles(allFiles, deselected);
   const currentBranchInfo = data.branches?.branches.find((b) => b.isCurrent);
@@ -99,7 +99,7 @@ export default function GitRepoDetail({
   const closeDialog = () => setDialog(null);
 
   const refreshAll = () => {
-    setNotice(null);
+    showNotice(null);
     void data.refresh();
     onChanged?.({ refresh: true });
   };
@@ -116,12 +116,6 @@ export default function GitRepoDetail({
         <Pane padding={12}>
           <RepoHeader repo={repo} links={data.links} linksError={data.errors.links} refreshing={data.loading} onBack={onBack} onRefresh={refreshAll} />
         </Pane>
-
-        {notice && (
-          <div style={{ position: "sticky", top: 0, zIndex: 5 }}>
-            <Notice notice={notice} onDismiss={() => setNotice(null)} />
-          </div>
-        )}
 
         <SummaryPanel state={summary.state} hasChanges={allFiles.length > 0} changesLoaded={files !== null} onRegenerate={() => void summary.regenerate()} />
 

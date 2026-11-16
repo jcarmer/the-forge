@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties, type InputHTMLAttributes, type ReactNode, type TextareaHTMLAttributes } from "react";
-import { Badge, Button, Heading, Pane, Text, type Variant } from "../../components";
+import { Button, Heading, Pane, Text } from "../../components";
 import type { GitActionResult } from "../../types";
-import { isHttpUrl, type NoticeData, type NoticeKind } from "./notice";
+import { isHttpUrl, type NoticeData } from "./notice";
 
 export const MONO = "ui-monospace, SFMono-Regular, Menlo, monospace";
 export const ACCENT = "#00f3ff";
@@ -149,55 +149,6 @@ export function CopyButton({ text, label = "Copy" }: { text: string; label?: str
     >
       {state === "copied" ? "Copied" : state === "failed" ? "Copy failed - select the text" : label}
     </Button>
-  );
-}
-
-const NOTICE_COLOR: Record<NoticeKind, string> = { success: "#39ff14", error: "#ff3366", warning: "#ff9900" };
-const NOTICE_WORD: Record<NoticeKind, string> = { success: "Done", error: "Failed", warning: "Needs attention" };
-const NOTICE_VARIANT: Record<NoticeKind, Variant> = { success: "success", error: "danger", warning: "warning" };
-
-/** Success/error banner for the last action. Errors use role=alert; the kind is also spelled out in text. */
-export function Notice({ notice, onDismiss }: { notice: NoticeData; onDismiss: () => void }) {
-  const color = NOTICE_COLOR[notice.kind];
-  return (
-    <div
-      role={notice.kind === "success" ? "status" : "alert"}
-      style={{ border: `1px solid ${color}`, borderLeftWidth: 4, background: "rgb(0 0 0 / 0.35)", padding: "10px 12px", display: "flex", flexDirection: "column", gap: 8 }}
-    >
-      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-        <Badge variant={NOTICE_VARIANT[notice.kind]}>{NOTICE_WORD[notice.kind]}</Badge>
-        <strong style={{ fontSize: 13 }}>{notice.title}</strong>
-        {notice.conflict && <Badge variant="danger">CONFLICT</Badge>}
-        <div style={{ flex: 1 }} />
-        <Button variant="ghost" size="sm" onClick={onDismiss} aria-label="Dismiss message">
-          Dismiss
-        </Button>
-      </div>
-      <div style={{ fontSize: 13, overflowWrap: "anywhere", whiteSpace: "pre-wrap" }}>{notice.text}</div>
-      {notice.url && (
-        <div>
-          Pull request: <ExternalLink href={notice.url}>{notice.url}</ExternalLink>
-        </div>
-      )}
-      {notice.recoveryRef && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          <Text muted>Recover with:</Text>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-            <code style={{ fontFamily: MONO, fontSize: 12, overflowWrap: "anywhere", userSelect: "all" }}>git stash apply {notice.recoveryRef}</code>
-            <CopyButton text={`git stash apply ${notice.recoveryRef}`} />
-          </div>
-        </div>
-      )}
-      {notice.results && notice.results.length > 0 && (
-        <ul style={{ margin: 0, paddingLeft: 18, display: "flex", flexDirection: "column", gap: 2, fontSize: 12 }}>
-          {notice.results.map((r) => (
-            <li key={r.branch}>
-              <strong>{r.branch}</strong>: {r.ok ? "deleted" : "NOT deleted"} - <span style={{ overflowWrap: "anywhere" }}>{r.detail}</span>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
   );
 }
 
