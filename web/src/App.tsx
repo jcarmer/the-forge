@@ -11,6 +11,7 @@ import { TasksView } from "./views/TasksView";
 import { ContextView } from "./views/ContextView";
 import { SessionsView } from "./views/SessionsView";
 import { DashboardView } from "./views/DashboardView";
+import { ConsoleView } from "./views/ConsoleView";
 import { GitView } from "./views/GitView";
 import { ToastHost } from "./components/Toast";
 import { useGitRepos } from "./hooks/useGitRepos";
@@ -18,7 +19,7 @@ import { attentionCount } from "./views/gitTileChips";
 import mjolnir from './../../mjolnir.webp';
 
 
-const TAB_KEYS = ["dashboard", "services", "diagnostics", "usage", "packages", "tasks", "context", "sessions", "git"] as const;
+const TAB_KEYS = ["dashboard", "services", "diagnostics", "usage", "packages", "tasks", "context", "sessions", "git", "console"] as const;
 type TabKey = (typeof TAB_KEYS)[number];
 
 function tabFromPath(path: string): TabKey {
@@ -44,6 +45,7 @@ export function App() {
   const tabs: { key: TabKey; title: string; content: ReactNode }[] = state
     ? [
         { key: "dashboard", title: "Dashboard", content: <DashboardView /> },
+        { key: "console", title: "Console", content: <ConsoleView /> },
         { key: "git", title: gitAttention > 0 ? `Git (${gitAttention})` : "Git", content: <GitView git={git} /> },
         {
           key: "services",

@@ -21,6 +21,8 @@ import { summarizeAllRepos, summarizeRepo } from "../git/repoSummary.js";
 import { RepoActionError } from "../git/repoResolve.js";
 import { handleRepoRoute, matchRepoRoute } from "../git/repoActions.js";
 import { discoverWorkspaces, loadConfig, mergeTiles, parseConfig, presetTiles, saveConfig } from "../dashboard/store.js";
+import { consoleRequestAllowed, runCommand } from "../console/run.js";
+import { helpText, localChips, normalizeLine, ollamaIdeas } from "../console/suggest.js";
 import type { ForgeState, ServiceStatus, TaskRecord } from "../state/forgeState.js";
 
 export interface ServiceController {
@@ -435,6 +437,21 @@ export function createForgeRequestHandler(ctx: ForgeApiContext, hub: ForgeStateH
           child.on("close", (code) => done({ ok: code === 0, output: buf.trim() || `(exit ${code}, no output)` }));
         });
         return sendJson(res, out.ok ? 200 : 500, out);
+      }
+
+      // Phone console. Suggestions never run anything; /run executes one command line and is guarded against cross-site requests.
+      if (req.method === "POST" && (pathname === "/api/console/suggest" || pathname === "/api/console/run")) {
+        if (!consoleRequestAllowed(req)) return sendJson(res, 403, { error: "console requests need the Forge web UI" });
+        const body = await readJsonObjectLimited(req, 16 * 1024);
+        const cwd = typeof body?.cwd === "string" && body.cwd ? body.cwd : ctx.projectsRoot;
+        const line = typeof body?.line === "string" ? body.line.slice(0, 2000) : "";
+        const history = Array.isArray(body?.history) ? body.history.filter((h): h is string => typeof h === "string").slice(-20) : [];
+        if (pathname === "/api/console/run") return sendJson(res, 200, await runCommand(cwd, line));
+        const chips = await localChips({ cwd, line, history });
+        if (body?.ai !== true) return sendJson(res, 200, { chips, normalized: normalizeLine(line) });
+        const help = await helpText(cwd, normalizeLine(line).trim().split(/\s+/));
+        const ideas = await ollamaIdeas({ cwd, line, history }, { model: ctx.manifest.ollama.primaryModel, help });
+        return sendJson(res, 200, { chips: ideas.chips, ok: ideas.ok, detail: ideas.detail });
       }
 
       if (req.method === "POST" && pathname === "/api/actions/t3-pair") {
