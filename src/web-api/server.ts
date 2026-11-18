@@ -9,11 +9,11 @@ import { collectUsage } from "../usage/collector.js";
 import { pickProvider, type TaskComplexity } from "../usage/router.js";
 import { type ProviderName, UsageSnapshotSchema } from "../usage/schema.js";
 import { listProjects, scanContext } from "../context/inventory.js";
-import { getSession, listSessions, windowTotals } from "../sessions/parse.js";
+import { defaultSources, getSession, listSessionFiles, listSessions, readTelemetryConfig, windowTotals } from "../sessions/parse.js";
 import { annotateWithOllama, deterministicFlags } from "../sessions/analyze.js";
 import { buildOverview, loadStories, renderDigest } from "../sessions/digest.js";
+import { enactImprovement, generateImprovements } from "../sessions/improve.js";
 import { storyForFile } from "../sessions/story.js";
-import { listSessionFiles, defaultSources } from "../sessions/parse.js";
 import { executeTask } from "../worker/runner.js";
 import { loadTaskRecords, taskStorePath, upsertTaskRecord } from "../worker/taskStore.js";
 import { buildPackage, pushRepo, readPackageApiDts, scanPackages, scanRepos, togglePackageLink } from "../packages/hub.js";
@@ -324,22 +324,28 @@ export function createForgeRequestHandler(ctx: ForgeApiContext, hub: ForgeStateH
 
       if (req.method === "GET" && pathname === "/api/sessions") {
         const claudeWeekly = hub.getState().usage?.entries.find((e) => e.provider === "claude" && e.scope === "weekly");
+        const tc = readTelemetryConfig();
+        const coverage = SESSION_COVERAGE.map((c) =>
+          c.source === "Antigravity CLI" && tc.includeAntigravityTranscripts
+            ? { source: "Antigravity ACP transcripts", tokens: true, mcp: true, note: "parsed from antigravity-acp brain transcript.jsonl" }
+            : c,
+        );
         return sendJson(res, 200, {
           sessions: listSessions(),
           week: windowTotals(),
           claudeWeeklyRemainingPct: claudeWeekly?.remainingPct ?? null,
-          coverage: SESSION_COVERAGE,
+          coverage,
         });
       }
 
       if (req.method === "GET" && pathname === "/api/sessions/overview") {
-        const days = Math.min(90, Math.max(0.25, Number(url.searchParams.get("days")) || 7));
+        const days = Math.min(90, Math.max(1 / 24, Number(url.searchParams.get("days")) || 7));
         const stories = loadStories(days);
         return sendJson(res, 200, { overview: buildOverview(stories, days) });
       }
 
       if (req.method === "GET" && pathname === "/api/sessions/digest") {
-        const days = Math.min(90, Math.max(0.25, Number(url.searchParams.get("days")) || 7));
+        const days = Math.min(90, Math.max(1 / 24, Number(url.searchParams.get("days")) || 7));
         const redact = url.searchParams.get("redact") === "1";
         const stories = loadStories(days, { redact });
         return sendJson(res, 200, { markdown: renderDigest(stories, buildOverview(stories, days), { redact }) });
@@ -364,6 +370,27 @@ export function createForgeRequestHandler(ctx: ForgeApiContext, hub: ForgeStateH
         const detail = getSession(body.id ?? "");
         if (!detail) return sendJson(res, 404, { error: "session not found" });
         return sendJson(res, 200, await annotateWithOllama(detail, { model: ctx.manifest.ollama.primaryModel }));
+      }
+
+      if (req.method === "POST" && pathname === "/api/actions/session-improve") {
+        const body = await readJsonBody<{ days?: number; useOllama?: boolean }>(req);
+        const days = Math.min(90, Math.max(1 / 24, Number(body.days) || 7));
+        const report = await generateImprovements(days, {
+          model: ctx.manifest.ollama.primaryModel,
+          stateDir: ctx.stateDir,
+          useOllama: body.useOllama ?? true,
+        });
+        return sendJson(res, 200, { report });
+      }
+
+      if (req.method === "POST" && pathname === "/api/actions/session-enact") {
+        const body = await readJsonBody<{ id: string; days?: number; customRule?: string }>(req);
+        if (!body.id) return sendJson(res, 400, { ok: false, detail: "missing improvement id" });
+        const result = await enactImprovement(body, {
+          model: ctx.manifest.ollama.primaryModel,
+          stateDir: ctx.stateDir,
+        });
+        return sendJson(res, result.ok ? 200 : 400, result);
       }
 
       if (req.method === "GET" && pathname === "/api/packages/api") {

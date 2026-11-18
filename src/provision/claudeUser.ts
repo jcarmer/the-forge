@@ -6,6 +6,7 @@ export const CLAUDE_DIR = "/root/.claude";
 const BEGIN = "<!-- forge:begin (managed by the-forge; edit ops/claude-user/CLAUDE.md instead) -->";
 const END = "<!-- forge:end -->";
 const GUARD_MARKER = "bash-guard.mjs";
+const TELEMETRY_MARKER = "session-telemetry.mjs";
 
 export interface ClaudeUserPaths {
   repoDir: string;
@@ -29,14 +30,22 @@ export function mergeManagedBlock(existing: string, guidance: string): string {
 type Json = Record<string, unknown>;
 interface HookEntry { matcher?: string; hooks?: { type?: string; command?: string }[] }
 
-/** Adds our PreToolUse/Bash hook, drops any older copy of it, and keeps every other setting and hook. */
-export function mergeHookSettings(existing: Json, command: string): Json {
-  const hooks = { ...((existing.hooks as Json | undefined) ?? {}) };
-  const pre = ((hooks.PreToolUse as HookEntry[] | undefined) ?? [])
-    .map((e) => ({ ...e, hooks: (e.hooks ?? []).filter((h) => !h.command?.includes(GUARD_MARKER)) }))
+function upsertHookEvent(list: HookEntry[] | undefined, marker: string, matcher: string, command?: string): HookEntry[] | undefined {
+  const cleaned = (list ?? [])
+    .map((e) => ({ ...e, hooks: (e.hooks ?? []).filter((h) => !h.command?.includes(marker)) }))
     .filter((e) => (e.hooks?.length ?? 0) > 0);
-  pre.push({ matcher: "Bash", hooks: [{ type: "command", command }] });
-  hooks.PreToolUse = pre;
+  if (command) cleaned.push({ matcher, hooks: [{ type: "command", command }] });
+  return cleaned.length > 0 ? cleaned : list !== undefined ? [] : undefined;
+}
+
+/** Adds our PreToolUse/Bash hook (and optional telemetry hooks), drops any older copy of them, and keeps every other setting and hook. */
+export function mergeHookSettings(existing: Json, command: string, telemetryCommand?: string): Json {
+  const hooks = { ...((existing.hooks as Json | undefined) ?? {}) };
+  hooks.PreToolUse = upsertHookEvent(hooks.PreToolUse as HookEntry[] | undefined, GUARD_MARKER, "Bash", command);
+  const preCompact = upsertHookEvent(hooks.PreCompact as HookEntry[] | undefined, TELEMETRY_MARKER, "*", telemetryCommand);
+  if (preCompact !== undefined) hooks.PreCompact = preCompact;
+  const postFail = upsertHookEvent(hooks.PostToolUseFailure as HookEntry[] | undefined, TELEMETRY_MARKER, "*", telemetryCommand);
+  if (postFail !== undefined) hooks.PostToolUseFailure = postFail;
   return { ...existing, hooks };
 }
 
@@ -47,6 +56,11 @@ function guidancePointer(p: ClaudeUserPaths) {
 
 function guardCommand(p: ClaudeUserPaths) {
   return `node ${join(p.repoDir, "ops/claude-user", GUARD_MARKER)}`;
+}
+
+function telemetryCommand(p: ClaudeUserPaths): string | undefined {
+  const script = join(p.repoDir, "ops/claude-user", TELEMETRY_MARKER);
+  return existsSync(script) ? `node ${script}` : undefined;
 }
 
 function readSettings(path: string): Json {
@@ -81,7 +95,7 @@ export function isClaudeUserConfigCurrent(p: ClaudeUserPaths = defaults): boolea
     const md = join(p.claudeDir, "CLAUDE.md");
     if (!existsSync(md) || mergeManagedBlock(readFileSync(md, "utf8"), guidance) !== readFileSync(md, "utf8")) return false;
     const settings = readSettings(join(p.claudeDir, "settings.json"));
-    if (JSON.stringify(mergeHookSettings(settings, guardCommand(p))) !== JSON.stringify(settings)) return false;
+    if (JSON.stringify(mergeHookSettings(settings, guardCommand(p), telemetryCommand(p))) !== JSON.stringify(settings)) return false;
     return skillsCurrent(p);
   } catch {
     return false;
@@ -97,7 +111,7 @@ export function installClaudeUserConfig(p: ClaudeUserPaths = defaults): void {
   writeFileSync(md, mergeManagedBlock(mdOld, guidance), "utf8");
 
   const settingsPath = join(p.claudeDir, "settings.json");
-  const merged = mergeHookSettings(readSettings(settingsPath), guardCommand(p));
+  const merged = mergeHookSettings(readSettings(settingsPath), guardCommand(p), telemetryCommand(p));
   writeFileSync(settingsPath, JSON.stringify(merged, null, 2) + "\n", "utf8");
 
   for (const n of skillNames(p)) {

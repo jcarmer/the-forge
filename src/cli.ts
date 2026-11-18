@@ -15,11 +15,11 @@ import { startPreviewLandingServer, syncPreviewWorktrees, syncTbeVscodeExtension
 import { checkCoderModelUpdates } from "./healthcheck/models.js";
 import { buildProvisionSteps, checkAuthStatus, runProvision } from "./provision/steps.js";
 import { listProjects, scanContext } from "./context/inventory.js";
-import { getSession, listSessions, windowTotals } from "./sessions/parse.js";
+import { defaultSources, getSession, listSessionFiles, listSessions, windowTotals } from "./sessions/parse.js";
 import { annotateWithOllama, deterministicFlags } from "./sessions/analyze.js";
 import { buildOverview, loadStories, renderDigest } from "./sessions/digest.js";
+import { enactImprovement, generateImprovements } from "./sessions/improve.js";
 import { renderStoryText, storyForFile } from "./sessions/story.js";
-import { listSessionFiles, defaultSources } from "./sessions/parse.js";
 import { executeTask } from "./worker/runner.js";
 import { taskStorePath, upsertTaskRecord } from "./worker/taskStore.js";
 
@@ -191,6 +191,34 @@ switch (cmd) {
       console.log(renderStoryText(storyForFile(f.file, f.source, { redact: rest.includes("--redact") })));
       break;
     }
+    if (rest[0] === "improve") {
+      const flag = (n: string) => { const i = rest.indexOf(n); return i >= 0 ? rest[i + 1] : undefined; };
+      const days = Math.min(90, Math.max(1 / 24, Number(flag("--days") ?? 7)));
+      const enactId = flag("--enact");
+      if (enactId) {
+        const r = await enactImprovement({ id: enactId, days }, { model: manifest.ollama.primaryModel, stateDir, repoDir: root });
+        console.log(r.ok ? `OK: ${r.detail}\nFiles: ${r.modifiedFiles.join(", ")}` : `FAIL: ${r.detail}`);
+        process.exitCode = r.ok ? 0 : 1;
+        break;
+      }
+      const rep = await generateImprovements(days, { model: manifest.ollama.primaryModel, stateDir, repoDir: root });
+      console.log(`== Self-Improvement Report (${rep.summary})\n`);
+      console.log("Actions to implement:");
+      for (const a of rep.actions) {
+        console.log(`  [${a.applied ? "APPLIED" : a.priority.toUpperCase()}] ${a.id} — ${a.title}`);
+        console.log(`    Why: ${a.why}`);
+        console.log(`    Guidance: ${a.guidance}`);
+        console.log(`    Files: ${a.targetFiles.join(", ")}`);
+      }
+      console.log("\nData collection suggestions:");
+      for (const d of rep.dataCollection) {
+        console.log(`  [${d.applied ? "APPLIED" : d.priority.toUpperCase()}] ${d.id} — ${d.title}`);
+        console.log(`    Why: ${d.why}`);
+        console.log(`    Guidance: ${d.guidance}`);
+        console.log(`    Files: ${d.targetFiles.join(", ")}`);
+      }
+      break;
+    }
     const id = rest.find((a) => !a.startsWith("--"));
     const week = windowTotals();
     if (!id) {
@@ -211,7 +239,9 @@ switch (cmd) {
     console.log(`${d.id} (${d.source}) ${d.project ?? ""}\nmodels: ${d.models.join(", ")}  steps: ${d.stepCount}  fresh: ${d.totals.fresh}  total: ${d.totals.total}  (${((d.totals.fresh / Math.max(week.fresh, 1)) * 100).toFixed(1)}% of last-7-day fresh tokens)`);
     if (d.allowedMcp?.length) console.log(`MCP pre-approved by T3: ${d.allowedMcp.join(", ")}`);
     for (const m of d.mcp) console.log(`MCP ${m.server}: ${m.calls} calls (${Object.entries(m.tools).map(([k, v]) => `${k}x${v}`).join(", ")}), ~${m.attributedFresh} fresh tokens`);
-    for (const f of flags) console.log(`  step ${f.index} [${f.kind}] ${f.message}`);
+    for (const f of flags) {
+      console.log(`  step ${f.index} [${f.kind}] ${f.message}${f.remediation ? ` -> ${f.remediation}` : ""}`);
+    }
     if (rest.includes("--ollama")) {
       const a = await annotateWithOllama(d, { model: manifest.ollama.primaryModel });
       console.log(a.ok ? `\nOllama (${a.model}):` : `\nOllama failed: ${a.detail}`);

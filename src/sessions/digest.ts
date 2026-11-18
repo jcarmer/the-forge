@@ -23,19 +23,21 @@ export interface Overview {
   parallel: { parallelSteps: number; savedMs: number };
   subagentFreshTokens: number;
   availableNeverUsed: Capabilities;
-  findings: { id: string; severity: Finding["severity"]; title: string; detail: string; sessions: number; examples: string[] }[];
+  findings: { id: string; severity: Finding["severity"]; title: string; detail: string; remediation?: string; actionId?: string; sessions: number; examples: string[] }[];
   topCost: { id: string; title: string; costUsd: number; wallMs: number; turns: number }[];
 }
 
-export function loadStories(days: number, opts: { redact?: boolean; src?: SessionSources; now?: number } = {}): SessionStory[] {
+export function loadStories(days: number, opts: { redact?: boolean; src?: SessionSources; now?: number; repoDir?: string } = {}): SessionStory[] {
   const now = opts.now ?? Date.now();
   const since = now - days * 86_400_000;
   const out: SessionStory[] = [];
   const seen = new Set<string>();
-  // T3 provider logs are the source of record; Claude transcripts of the same thread are duplicates.
-  const files = listSessionFiles(opts.src ?? defaultSources()).filter((f) => f.source === "t3-provider" && f.mtimeMs >= since);
+  // T3 provider logs (and Antigravity ACP transcripts when enabled) are the source of record; Claude transcripts of the same thread are duplicates.
+  const files = listSessionFiles(opts.src ?? defaultSources(undefined, opts.repoDir)).filter(
+    (f) => (f.source === "t3-provider" || f.source === "antigravity-transcript") && f.mtimeMs >= since,
+  );
   for (const f of files) {
-    const s = storyForFile(f.file, f.source, { redact: opts.redact });
+    const s = storyForFile(f.file, f.source, { redact: opts.redact, repoDir: opts.repoDir });
     if (s.calls.length + s.turns.length === 0 || seen.has(s.id)) continue;
     seen.add(s.id);
     out.push(s);
@@ -116,7 +118,16 @@ export function buildOverview(stories: SessionStory[], days: number): Overview {
       mcpServers: avail.mcpServers.filter((x) => !used.mcpServers.includes(x)),
     },
     findings: [...findings.values()]
-      .map(({ f, sessions, examples }) => ({ id: f.id, severity: f.severity, title: f.title, detail: f.detail, sessions: sessions.size, examples }))
+      .map(({ f, sessions, examples }) => ({
+        id: f.id,
+        severity: f.severity,
+        title: f.title,
+        detail: f.detail,
+        remediation: f.remediation,
+        actionId: f.actionId,
+        sessions: sessions.size,
+        examples,
+      }))
       .sort((a, b) => order[a.severity] - order[b.severity] || b.sessions - a.sessions),
     topCost: [...stories]
       .filter((s) => s.totals.costUsd)
@@ -170,6 +181,7 @@ export function renderDigest(stories: SessionStory[], o: Overview, opts: { redac
   L.push("## Rule-based findings (across conversations)", "");
   for (const f of o.findings) {
     L.push(`- [${f.severity}] ${f.title} - ${f.sessions} conversation(s). ${f.detail}`);
+    if (f.remediation) L.push(`    - Fix: ${f.remediation}`);
     for (const e of f.examples) L.push(`    - e.g. ${e}`);
   }
   if (!o.findings.length) L.push("- none");

@@ -1,8 +1,27 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 
-export type SessionSource = "claude-transcript" | "t3-provider";
+export type SessionSource = "claude-transcript" | "t3-provider" | "antigravity-transcript";
+
+export interface TelemetryConfig {
+  logBashGuardBlocks?: boolean;
+  captureToolErrorSnippets?: boolean;
+  includeAntigravityTranscripts?: boolean;
+  captureInitSettings?: boolean;
+  enableTelemetryHook?: boolean;
+}
+
+export function readTelemetryConfig(repoDir = "/opt/the-forge"): TelemetryConfig {
+  const p = join(repoDir, "ops", "claude-user", "telemetry-config.json");
+  if (!existsSync(p)) return {};
+  try {
+    const v = JSON.parse(readFileSync(p, "utf8"));
+    return v && typeof v === "object" ? (v as TelemetryConfig) : {};
+  } catch {
+    return {};
+  }
+}
 
 export interface ToolCall {
   id: string;
@@ -235,13 +254,70 @@ export function parseT3ProviderLog(file: string): SessionDetail {
   return detail;
 }
 
+/** Antigravity ACP transcript: `.../brain/<id>/.system_generated/logs/transcript.jsonl`. */
+export function parseAntigravityTranscript(file: string): SessionDetail {
+  const b = new StepBuilder();
+  let project: string | undefined;
+  const cleanStr = (v: unknown) => (typeof v === "string" ? v.replace(/^"|"$/g, "") : "");
+  for (const line of readFileSync(file, "utf8").split("\n")) {
+    if (!line.trim()) continue;
+    let rec: Record<string, unknown>;
+    try {
+      rec = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (rec.type !== "PLANNER_RESPONSE") continue;
+    const stepIdx = num(rec.step_index);
+    const ts = typeof rec.created_at === "string" ? rec.created_at : "";
+    const rawCalls = Array.isArray(rec.tool_calls) ? rec.tool_calls : [];
+    const content = rawCalls.map((tc, idx) => {
+      const c = (tc && typeof tc === "object" ? tc : {}) as { name?: unknown; args?: Record<string, unknown> };
+      const rawName = typeof c.name === "string" ? c.name : "tool";
+      const args = c.args && typeof c.args === "object" ? c.args : {};
+      if (!project) {
+        const cwd = cleanStr(args.Cwd);
+        if (cwd) project = cwd;
+      }
+      if (rawName === "call_mcp_tool") {
+        const srv = cleanStr(args.ServerName) || "mcp";
+        const tool = cleanStr(args.ToolName) || "call";
+        return { type: "tool_use", id: `ag_${stepIdx}_${idx}`, name: `mcp__${srv}__${tool}` };
+      }
+      return { type: "tool_use", id: `ag_${stepIdx}_${idx}`, name: rawName };
+    });
+    b.add(ts, {
+      id: `msg_ag_${stepIdx}`,
+      model: typeof rec.model === "string" ? rec.model : "antigravity",
+      usage: {
+        input_tokens: num(rec.input_tokens),
+        output_tokens: num(rec.output_tokens),
+        cache_read_input_tokens: num(rec.cache_read_tokens),
+        cache_creation_input_tokens: num(rec.cache_creation_tokens),
+      },
+      content,
+    });
+  }
+  const brainId = basename(dirname(dirname(dirname(file))));
+  const id = brainId && brainId !== "." && brainId !== "/" ? brainId : basename(file, ".jsonl");
+  return summarize(id, "antigravity-transcript", file, project, b.build());
+}
+
 export interface SessionSources {
   claudeProjectsDir: string;
   t3ProviderLogDir: string;
+  antigravityProvidersDir?: string;
 }
 
-export function defaultSources(home = homedir()): SessionSources {
-  return { claudeProjectsDir: join(home, ".claude", "projects"), t3ProviderLogDir: join(home, ".t3", "userdata", "logs", "provider") };
+export function defaultSources(home = homedir(), repoDir = "/opt/the-forge"): SessionSources {
+  const cfg = readTelemetryConfig(repoDir);
+  return {
+    claudeProjectsDir: join(home, ".claude", "projects"),
+    t3ProviderLogDir: join(home, ".t3", "userdata", "logs", "provider"),
+    ...(cfg.includeAntigravityTranscripts
+      ? { antigravityProvidersDir: join(home, ".t3", "userdata", "providers", "antigravity") }
+      : {}),
+  };
 }
 
 export function listSessionFiles(src: SessionSources): { file: string; source: SessionSource; mtimeMs: number }[] {
@@ -267,16 +343,39 @@ export function listSessionFiles(src: SessionSources): { file: string; source: S
     // Rotated files (`.log.1`) are older chunks of the same thread: they are read together with the primary `.log`.
     for (const f of readdirSync(src.t3ProviderLogDir)) if (/^events\..+\.log$/.test(f)) add(join(src.t3ProviderLogDir, f), "t3-provider");
   }
+  if (src.antigravityProvidersDir && existsSync(src.antigravityProvidersDir)) {
+    for (const prof of readdirSync(src.antigravityProvidersDir)) {
+      const brainDir = join(src.antigravityProvidersDir, prof, "antigravity-acp", "brain");
+      if (!existsSync(brainDir)) continue;
+      try {
+        for (const conv of readdirSync(brainDir)) {
+          const tf = join(brainDir, conv, ".system_generated", "logs", "transcript.jsonl");
+          if (existsSync(tf)) add(tf, "antigravity-transcript");
+        }
+      } catch {
+        // ignore unreadable dir
+      }
+    }
+  }
   return out.sort((a, b) => b.mtimeMs - a.mtimeMs);
 }
 
 const cache = new Map<string, { mtimeMs: number; size: number; detail: SessionDetail }>();
 
+export function clearParseCache(): void {
+  cache.clear();
+}
+
 export function parseSessionFile(file: string, source: SessionSource): SessionDetail {
   const st = statSync(file);
   const hit = cache.get(file);
   if (hit && hit.mtimeMs === st.mtimeMs && hit.size === st.size) return hit.detail;
-  const detail = source === "claude-transcript" ? parseClaudeTranscript(file) : parseT3ProviderLog(file);
+  const detail =
+    source === "claude-transcript"
+      ? parseClaudeTranscript(file)
+      : source === "antigravity-transcript"
+        ? parseAntigravityTranscript(file)
+        : parseT3ProviderLog(file);
   cache.set(file, { mtimeMs: st.mtimeMs, size: st.size, detail });
   return detail;
 }
@@ -291,11 +390,11 @@ export function listSessions(src = defaultSources(), limit = 60): SessionSummary
     })
     .filter((s) => s.stepCount > 0);
   const covered = new Set(all.flatMap((s) => s.claudeSessionIds ?? []));
-  return all.filter((s) => s.source === "t3-provider" || !covered.has(s.id)).slice(0, limit);
+  return all.filter((s) => s.source !== "claude-transcript" || !covered.has(s.id)).slice(0, limit);
 }
 
 export function getSession(id: string, src = defaultSources()): SessionDetail | null {
-  const f = listSessionFiles(src).find((x) => basename(x.file).includes(id) && id.length >= 8);
+  const f = listSessionFiles(src).find((x) => x.file.includes(id) && id.length >= 8);
   return f ? parseSessionFile(f.file, f.source) : null;
 }
 

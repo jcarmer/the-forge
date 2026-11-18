@@ -1,5 +1,5 @@
 import { readFileSync, statSync } from "node:fs";
-import { parseSessionFile, readT3LogText, toolServer, type SessionSource } from "./parse.js";
+import { parseSessionFile, readT3LogText, readTelemetryConfig, toolServer, type SessionSource } from "./parse.js";
 
 /**
  * "Story" view of a conversation: what was asked, what was done, how long each part took, and where
@@ -26,6 +26,8 @@ export interface Call {
   background: boolean;
   resultChars: number;
   isError: boolean;
+  /** Short snippet of the error output when `captureToolErrorSnippets` is enabled. */
+  errorText?: string;
   turn: number;
   /** Assistant message that issued the call: calls sharing one were issued in parallel. */
   stepId: string;
@@ -59,6 +61,10 @@ export interface Finding {
   severity: "good" | "info" | "suggest";
   title: string;
   detail: string;
+  /** Concrete guidance on what to do to correct or prevent the pattern. */
+  remediation?: string;
+  /** Identifier of a permanent self-improvement action in the-forge that addresses this pattern. */
+  actionId?: string;
   evidence: string[];
   turn?: number;
 }
@@ -104,12 +110,16 @@ export interface SessionStory {
   subagents: { count: number; backgroundCount: number; totalMs: number; freshTokens: number; totalTokens: number };
   /** Skills / agents / MCP servers the session advertised at start vs which were actually called. */
   capabilities: { available: Capabilities; used: Capabilities };
+  /** Session-level launch settings (effort, permissionMode) when `captureInitSettings` is enabled. */
+  settings?: { effort?: string; permissionMode?: string };
   findings: Finding[];
 }
 
 export interface StoryOptions {
   /** Drop prompts, commands and file paths so only counts and timings remain. */
   redact?: boolean;
+  /** Override repo directory used to read telemetry config. */
+  repoDir?: string;
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -128,6 +138,10 @@ function promptText(content: unknown): string {
   const text = typeof content === "string" ? content : Array.isArray(content) ? content.map((b) => (asObj(b).type === "text" ? String(asObj(b).text ?? "") : "")).join(" ") : "";
   return text
     .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, " ")
+    .replace(/<t3_code_instructions>[\s\S]*?<\/t3_code_instructions>/g, " ")
+    .replace(/<runtime_info>[\s\S]*?<\/runtime_info>/g, " ")
+    .replace(/<ADDITIONAL_METADATA>[\s\S]*?<\/ADDITIONAL_METADATA>/g, " ")
+    .replace(/<\/?(?:USER_REQUEST|user_request)>/g, " ")
     .replace(/<[a-z-]+>[\s\S]*?<\/[a-z-]+>/g, (m) => (m.startsWith("<command-") ? m.replace(/<[^>]+>/g, " ") : " "))
     .replace(/\s+/g, " ")
     .trim();
@@ -150,6 +164,20 @@ function readT3(file: string): Rec[] {
     if (!Number.isFinite(ts)) continue;
     const side = !!p.parent_tool_use_id;
     switch (p.type) {
+      case "query.open": {
+        const opts = asObj(p.options);
+        out.push({
+          ts,
+          type: "init",
+          p: {
+            cwd: opts.cwd ?? p.cwd,
+            effort: opts.effort ?? p.effort,
+            permissionMode: opts.permissionMode ?? p.permissionMode,
+          },
+          side: false,
+        });
+        break;
+      }
       case "prompt.offer": {
         const text = promptText(asObj(asObj(p.message).message).content);
         if (text) out.push({ ts, type: "prompt", p: { text, uuid: asObj(p.message).uuid }, side: false });
@@ -200,6 +228,78 @@ function readTranscript(file: string): Rec[] {
         const text = promptText(content);
         if (text) out.push({ ts, type: "prompt", p: { text }, side: false });
       }
+    }
+  }
+  return out;
+}
+
+function readAntigravity(file: string): Rec[] {
+  const out: Rec[] = [];
+  const cleanStr = (v: unknown) => (typeof v === "string" ? v.replace(/^"|"$/g, "") : "");
+  const pendingIds: string[] = [];
+  for (const line of readFileSync(file, "utf8").split("\n")) {
+    if (!line.trim()) continue;
+    let o: any;
+    try {
+      o = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    const ts = Date.parse(String(o.created_at ?? ""));
+    if (!Number.isFinite(ts)) continue;
+    if (o.type === "USER_INPUT") {
+      const text = promptText(o.content);
+      if (text) out.push({ ts, type: "prompt", p: { text, uuid: `ag_u_${o.step_index}` }, side: false });
+    } else if (o.type === "PLANNER_RESPONSE") {
+      const stepIdx = Number(o.step_index ?? 0);
+      const rawCalls = Array.isArray(o.tool_calls) ? o.tool_calls : [];
+      const content: unknown[] = [];
+      for (let i = 0; i < rawCalls.length; i++) {
+        const tc = asObj(rawCalls[i]);
+        const rawName = String(tc.name ?? "tool");
+        const args = asObj(tc.args);
+        const id = `ag_${stepIdx}_${i}`;
+        pendingIds.push(id);
+        let mappedName = rawName;
+        let mappedInput: Record<string, unknown> = args;
+        if (rawName === "call_mcp_tool") {
+          mappedName = `mcp__${cleanStr(args.ServerName) || "mcp"}__${cleanStr(args.ToolName) || "call"}`;
+        } else if (rawName === "run_command") {
+          mappedName = "Bash";
+          mappedInput = { command: cleanStr(args.CommandLine), description: cleanStr(args.toolSummary) || cleanStr(args.CommandLine) };
+        } else if (rawName === "view_file") {
+          mappedName = "Read";
+          mappedInput = { file_path: cleanStr(args.AbsolutePath) };
+        } else if (rawName === "replace_file_content" || rawName === "multi_replace_file_content") {
+          mappedName = "Edit";
+          mappedInput = { file_path: cleanStr(args.TargetFile) };
+        } else if (rawName === "write_to_file") {
+          mappedName = "Write";
+          mappedInput = { file_path: cleanStr(args.TargetFile) };
+        } else if (rawName === "invoke_subagent") {
+          mappedName = "Agent";
+          mappedInput = { subagent_type: "subagent", description: cleanStr(args.toolSummary) };
+        }
+        content.push({ type: "tool_use", id, name: mappedName, input: mappedInput });
+      }
+      out.push({
+        ts,
+        type: "assistant",
+        p: { message: { id: `msg_ag_${stepIdx}`, model: String(o.model ?? "antigravity"), content } },
+        side: false,
+      });
+    } else if (o.source === "MODEL" && o.type !== "SYSTEM_MESSAGE" && pendingIds.length > 0) {
+      const id = pendingIds.shift()!;
+      const rawContent = String(o.content ?? "");
+      const compMatch = rawContent.match(/Completed At:\s*(\S+)/);
+      const endTs = compMatch && Number.isFinite(Date.parse(compMatch[1])) ? Date.parse(compMatch[1]) : ts;
+      const isErr = o.status === "ERROR" || (typeof o.exit_code === "number" && o.exit_code !== 0);
+      out.push({
+        ts: Math.max(ts, endTs),
+        type: "tool_results",
+        p: { message: { content: [{ type: "tool_result", tool_use_id: id, content: rawContent, is_error: isErr }] } },
+        side: false,
+      });
     }
   }
   return out;
@@ -261,6 +361,23 @@ function resultSize(content: unknown): number {
   return 0;
 }
 
+function resultSnippet(content: unknown): string {
+  const raw =
+    typeof content === "string"
+      ? content
+      : Array.isArray(content)
+        ? content.map((b) => (typeof b === "string" ? b : String(asObj(b).text ?? ""))).join(" ")
+        : "";
+  return shorten(
+    raw
+      .replace(/^Created At:.*\n?/gm, "")
+      .replace(/^Completed At:.*\n?/gm, "")
+      .replace(/\s+/g, " ")
+      .trim(),
+    140,
+  );
+}
+
 // ---------------------------------------------------------------------------------------------------------------------
 // Interval maths
 
@@ -317,7 +434,14 @@ interface RawTurn {
 }
 
 export function buildStory(file: string, source: SessionSource, opts: StoryOptions = {}): SessionStory {
-  const recs = (source === "t3-provider" ? readT3(file) : readTranscript(file)).sort((a, b) => a.ts - b.ts);
+  const telemetryCfg = readTelemetryConfig(opts.repoDir);
+  const recs = (
+    source === "t3-provider"
+      ? readT3(file)
+      : source === "antigravity-transcript"
+        ? readAntigravity(file)
+        : readTranscript(file)
+  ).sort((a, b) => a.ts - b.ts);
   const detail = parseSessionFile(file, source);
   const hasResults = recs.some((r) => r.type === "result");
 
@@ -330,6 +454,7 @@ export function buildStory(file: string, source: SessionSource, opts: StoryOptio
   const sideStepIds = new Set<string>();
   const cumBaseline = new Map<string, number>();
   const avail: Capabilities = { skills: [], agents: [], mcpServers: [] };
+  const settings: { effort?: string; permissionMode?: string } = {};
   let title = "";
   let compactions = 0;
   let costComplete = true;
@@ -359,6 +484,10 @@ export function buildStory(file: string, source: SessionSource, opts: StoryOptio
         add(avail.agents, r.p.agents);
         add(avail.mcpServers, r.p.mcp_servers, (v) => asObj(v).name);
         if (typeof r.p.cwd === "string") cwd = cwd ?? r.p.cwd;
+        if (telemetryCfg.captureInitSettings) {
+          if (typeof r.p.effort === "string" && r.p.effort) settings.effort = r.p.effort;
+          if (typeof r.p.permissionMode === "string" && r.p.permissionMode) settings.permissionMode = r.p.permissionMode;
+        }
         break;
       }
       case "title":
@@ -428,6 +557,10 @@ export function buildStory(file: string, source: SessionSource, opts: StoryOptio
           c.endAbs = r.ts;
           c.resultChars = resultSize(blk.content);
           c.isError = blk.is_error === true;
+          if (c.isError && !opts.redact && telemetryCfg.captureToolErrorSnippets) {
+            const snip = resultSnippet(blk.content);
+            if (snip) c.errorText = snip;
+          }
         }
         break;
       }
@@ -568,6 +701,7 @@ export function buildStory(file: string, source: SessionSource, opts: StoryOptio
       totalTokens: subTotal,
     },
     capabilities: { available: avail, used },
+    ...(Object.keys(settings).length > 0 ? { settings } : {}),
     findings: [],
   };
   story.findings = deriveFindings(story, callList, [...steps.values()], detail);
@@ -646,7 +780,9 @@ function deriveFindings(s: SessionStory, calls: RawCall[], steps: RawStep[], det
       id: "serial-exploration",
       severity: "suggest",
       title: "Long chains of one-at-a-time lookups",
-      detail: "Several consecutive model steps each ran a single read-only call (read, grep, ls...). Independent lookups can be issued together in one step, or handed to an Explore sub-agent so the search results stay out of the main context.",
+      detail: "Several consecutive model steps each ran a single read-only call (read, grep, ls...). Independent lookups can be issued together in one step, or offloaded to ollama-helper so the search results stay out of the main context.",
+      remediation: "Batch 3+ independent Read/Grep/Glob calls into a single assistant step, or load ollama-helper via ToolSearch (select:mcp__ollama-helper__local_code_search_and_scan,mcp__ollama-helper__local_summarize_files) on turn 1 so broad file scans stay out of Claude context.",
+      actionId: "enforce-batch-lookups",
       evidence: worst.map((r) => `turn ${r.turn}: ${r.len} steps / ${r.calls} calls over ${fmtDur(r.ms)}`),
       turn: worst[0].turn,
     });
@@ -658,6 +794,8 @@ function deriveFindings(s: SessionStory, calls: RawCall[], steps: RawStep[], det
       severity: "suggest",
       title: "Shell used for reading and searching files",
       detail: `${bashSub.length} Bash calls were cat/head/tail/grep/find/sed. Those return unbounded output into the conversation; Read with a line range, Grep with a result limit, or a code-search MCP (such as your local ollama-helper) return only what is needed.`,
+      remediation: "Use the dedicated Read (with offset/limit) and Grep (with head_limit) tools instead of Bash cat/grep/sed/find, and extend ops/claude-user/bash-guard.mjs to block unbounded rg and large head/tail dumps.",
+      actionId: "tighten-bash-guard",
       evidence: bashSub.slice(0, 3).map((c) => c.label || "(redacted)"),
     });
 
@@ -669,6 +807,8 @@ function deriveFindings(s: SessionStory, calls: RawCall[], steps: RawStep[], det
       severity: "suggest",
       title: "Very large tool results",
       detail: `${big.length} tool result(s) of 30k+ characters (about ${fmtTok(tok)} tokens). Each one stays in the context and is re-read (cheaply, from cache) on every later step. Limiting output at the source or summarising with a local model keeps it out.`,
+      remediation: "Always pass offset and limit (<= 200 lines) to Read, head_limit (<= 50) to Grep, and summarize large files or logs via mcp__ollama-helper__local_summarize_files instead of dumping raw output into the conversation.",
+      actionId: "cap-big-tool-results",
       evidence: big.slice(0, 3).map((c) => `${c.name}${c.label ? ` ${c.label}` : ""}: ${fmtTok(Math.round(c.resultChars / 4))} tokens`),
     });
   }
@@ -682,6 +822,8 @@ function deriveFindings(s: SessionStory, calls: RawCall[], steps: RawStep[], det
       severity: "info",
       title: "Same file read three or more times",
       detail: "Re-reading is sometimes needed after edits, but repeated reads of an unchanged file are wasted context.",
+      remediation: "Do not re-read a file that is already in context unless an external command modified it; after an Edit, inspect only the changed line range with Read offset and limit.",
+      actionId: "context-hygiene-rules",
       evidence: rereads.slice(0, 3).map(([f, n]) => `${f} x${n}`),
     });
 
@@ -692,7 +834,9 @@ function deriveFindings(s: SessionStory, calls: RawCall[], steps: RawStep[], det
       id: "no-delegation",
       severity: "suggest",
       title: "No sub-agents used on a search-heavy session",
-      detail: `${explCalls} read-only lookups and ${mainSteps.length} steps ran in the main conversation. An Explore sub-agent can do broad searches in its own context and return only a summary, and independent tasks can run as parallel sub-agents.`,
+      detail: `${explCalls} read-only lookups and ${mainSteps.length} steps ran in the main conversation. Offloading broad searches to ollama-helper or delegating independent tasks to sub-agents keeps raw search results out of the main context.`,
+      remediation: "Load ollama-helper via ToolSearch for broad codebase scans (zero Claude tokens), or invoke forge-orchestrate / delegate_task to split independent subtasks across isolated worktrees.",
+      actionId: "enforce-batch-lookups",
       evidence: [],
     });
 
@@ -703,6 +847,8 @@ function deriveFindings(s: SessionStory, calls: RawCall[], steps: RawStep[], det
       severity: "suggest",
       title: "Long commands blocked the conversation",
       detail: `${slow.length} foreground command(s) ran a minute or more while the model waited. Running builds/tests in the background lets it keep working (or run independent checks in parallel).`,
+      remediation: "Pass run_in_background: true on Bash commands expected to run >30s (builds, full test suites) when other edits or independent checks can proceed in parallel.",
+      actionId: "background-slow-commands",
       evidence: slow.slice(0, 3).map((c) => `${c.name} ${c.label || ""} - ${fmtDur(c.durMs as number)}`),
     });
 
@@ -715,7 +861,9 @@ function deriveFindings(s: SessionStory, calls: RawCall[], steps: RawStep[], det
       severity: "info",
       title: "Short, read-only turn on the largest model",
       detail: `Turn ${t.index} took ${t.steps} step(s) with no edits on ${t.models.join(", ")}${t.costUsd !== null ? ` (about $${t.costUsd.toFixed(2)})` : ""}. Quick questions rarely need the biggest model.`,
-      evidence: [],
+      remediation: "Use mcp__ollama-helper__ask_local_helper, Sonnet, or a Flash model for quick read-only questions, and reserve Opus for multi-file edits, architecture, or complex debugging.",
+      actionId: "model-tier-routing",
+      evidence: s.settings?.effort ? [`effort: ${s.settings.effort}`] : [],
       turn: t.index,
     });
     break;
@@ -728,7 +876,9 @@ function deriveFindings(s: SessionStory, calls: RawCall[], steps: RawStep[], det
       severity: "info",
       title: "Time is spent in the model, not in tools",
       detail: `${Math.round((s.totals.modelMs / s.totals.activeMs) * 100)}% of ${fmtDur(s.totals.activeMs)} active time was the model generating (tools ran ${fmtDur(s.totals.toolMs)}). Faster tools or more parallel calls will not help here; model choice, reasoning effort, and splitting work across independent sub-agents are the levers that can.`,
-      evidence: [],
+      remediation: "Lower reasoning effort on routine implementation turns, use Sonnet/Flash for standard edits, and use forge-orchestrate to run independent tasks in parallel sub-agents.",
+      actionId: "model-tier-routing",
+      evidence: s.settings?.effort ? [`session effort: ${s.settings.effort}`] : [],
     });
 
   // Context size and cache rebuilds
@@ -740,6 +890,8 @@ function deriveFindings(s: SessionStory, calls: RawCall[], steps: RawStep[], det
       severity: "suggest",
       title: "Context grew very large",
       detail: `Peak context was about ${fmtTok(maxCtx)} tokens (compactions logged: ${s.totals.compactions}). Every step re-reads the whole context, so cost per step climbs with it; compacting earlier or starting a fresh thread per task keeps steps cheap.`,
+      remediation: "Compact earlier (/compact around ~200k tokens), start a fresh thread when switching topics, or delegate self-contained phases to sub-agents so intermediate file reads stay out of the main context.",
+      actionId: "context-hygiene-rules",
       evidence: [],
     });
   const rebuilds: string[] = [];
@@ -755,6 +907,8 @@ function deriveFindings(s: SessionStory, calls: RawCall[], steps: RawStep[], det
       severity: "info",
       title: "Prompt cache expired during a break",
       detail: "After a long pause the cached context expired and had to be rebuilt at full price. Starting a new thread (or compacting first) before a long break avoids paying for a large stale context.",
+      remediation: "Before taking a >5 minute break on a long thread, run /compact or start a new thread when you return so the expired context is not re-cached at full write price.",
+      actionId: "context-hygiene-rules",
       evidence: rebuilds.slice(0, 3),
     });
 
@@ -765,7 +919,9 @@ function deriveFindings(s: SessionStory, calls: RawCall[], steps: RawStep[], det
       severity: "info",
       title: "Many failed tool calls",
       detail: `${errs.length} of ${calls.length} tool calls returned errors; each failure costs a model step to read and retry.`,
-      evidence: errs.slice(0, 3).map((c) => `${c.name} ${c.label}`.trim()),
+      remediation: "Check tool preconditions first (e.g., preview_status before preview_open, verify scripts/paths before running), stop retrying after 2 failures, and enable tool-error snippet collection to inspect failure causes.",
+      actionId: "reduce-tool-errors",
+      evidence: errs.slice(0, 3).map((c) => `${c.name} ${c.label}${c.errorText ? ` -> ${c.errorText}` : ""}`.trim()),
     });
 
   const order = { suggest: 0, good: 1, info: 2 } as const;
@@ -776,6 +932,10 @@ function deriveFindings(s: SessionStory, calls: RawCall[], steps: RawStep[], det
 // Cached entry points
 
 const cache = new Map<string, { mtimeMs: number; size: number; redact: boolean; story: SessionStory }>();
+
+export function clearStoryCache(): void {
+  cache.clear();
+}
 
 export function storyForFile(file: string, source: SessionSource, opts: StoryOptions = {}): SessionStory {
   const st = statSync(file);
@@ -804,6 +964,7 @@ export function renderStoryText(s: SessionStory): string {
     L.push("");
     for (const f of s.findings) {
       L.push(`[${f.severity}] ${f.title}: ${f.detail}`);
+      if (f.remediation) L.push(`     Fix: ${f.remediation}`);
       for (const e of f.evidence) L.push(`     - ${e}`);
     }
   }

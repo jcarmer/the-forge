@@ -6,6 +6,7 @@ export interface StepFlag {
   index: number;
   kind: "cache-spike" | "long-output" | "mcp-heavy" | "top-cost";
   message: string;
+  remediation?: string;
 }
 
 const fmt = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(n >= 10_000 ? 0 : 1)}k` : String(n));
@@ -22,12 +23,38 @@ export function deterministicFlags(d: SessionDetail): StepFlag[] {
   steps.forEach((s, i) => {
     const index = i + 1;
     if (s.cacheCreate >= 20_000 && s.cacheCreate >= 3 * median)
-      flags.push({ stepId: s.id, index, kind: "cache-spike", message: `${fmt(s.cacheCreate)} tokens written to cache (large new context, usually a big tool result or file read)` });
-    if (s.output >= 8_000) flags.push({ stepId: s.id, index, kind: "long-output", message: `${fmt(s.output)} output tokens in one response` });
+      flags.push({
+        stepId: s.id,
+        index,
+        kind: "cache-spike",
+        message: `${fmt(s.cacheCreate)} tokens written to cache (large new context, usually a big tool result or file read)`,
+        remediation: "Use Read with offset/limit, Grep with head_limit, or ollama-helper local_summarize_files so large outputs do not enter the cache.",
+      });
+    if (s.output >= 8_000)
+      flags.push({
+        stepId: s.id,
+        index,
+        kind: "long-output",
+        message: `${fmt(s.output)} output tokens in one response`,
+        remediation: "Edit files incrementally with targeted Edit calls or draft boilerplate via ollama-helper local_draft_code.",
+      });
     const mcpCalls = s.tools.filter((t) => t.server);
     if (mcpCalls.length && s.fresh >= 2 * median)
-      flags.push({ stepId: s.id, index, kind: "mcp-heavy", message: `called ${[...new Set(mcpCalls.map((t) => t.name))].join(", ")} with ${fmt(s.fresh)} fresh tokens` });
-    if (top.has(s.id)) flags.push({ stepId: s.id, index, kind: "top-cost", message: `one of the 3 costliest steps (${fmt(s.fresh)} fresh tokens)` });
+      flags.push({
+        stepId: s.id,
+        index,
+        kind: "mcp-heavy",
+        message: `called ${[...new Set(mcpCalls.map((t) => t.name))].join(", ")} with ${fmt(s.fresh)} fresh tokens`,
+        remediation: "Request concise summaries or narrower queries from MCP tools to avoid large payload writes into context.",
+      });
+    if (top.has(s.id))
+      flags.push({
+        stepId: s.id,
+        index,
+        kind: "top-cost",
+        message: `one of the 3 costliest steps (${fmt(s.fresh)} fresh tokens)`,
+        remediation: "Click 'Explain costly steps (Ollama)' to see why this step spiked, or compact context before large transitions.",
+      });
   });
   return flags;
 }
