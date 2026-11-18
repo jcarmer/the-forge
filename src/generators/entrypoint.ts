@@ -64,7 +64,8 @@ if [ ! -x /root/.local/bin/t3 ] && [ ! -x /usr/local/bin/t3 ]; then
 fi
 log "Starting T3 on port ${t3?.port ?? 3773}..."
 # Unset ANTHROPIC_API_KEY so T3 uses the claude.ai subscription login in /root/.claude
-nohup env -u ANTHROPIC_API_KEY t3 serve --host 0.0.0.0 > /var/log/t3.log 2>&1 &
+# T3CODE_SERVER_BROWSER_SANDBOX=0 lets T3 launch its browser (Chromium sandbox is unavailable in the container)
+nohup env -u ANTHROPIC_API_KEY T3CODE_SERVER_BROWSER_SANDBOX=0 t3 serve --host 0.0.0.0 > /var/log/t3.log 2>&1 &
 
 # 8. ComfyUI (bootstraps on first run)
 start_comfyui() {
