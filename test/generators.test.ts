@@ -30,6 +30,10 @@ describe("generators", () => {
     expect(files["entrypoint.sh"]).toContain("--listen 0.0.0.0 --port 8188");
   });
 
+  it("runs the dev container under an init so orphaned children are reaped (no zombie buildup)", () => {
+    expect(files["docker-compose.yml"]).toMatch(/^\s+init: true$/m);
+  });
+
   it("invokes entrypoint.sh via /bin/bash so Windows bind mounts do not require +x", () => {
     expect(files["Dockerfile"]).toContain('ENTRYPOINT ["/bin/bash", "/usr/local/bin/entrypoint.sh"]');
     expect(files["docker-compose.yml"]).toContain('entrypoint: ["/bin/bash", "/usr/local/bin/entrypoint.sh"]');
