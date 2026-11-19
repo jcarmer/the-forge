@@ -82,7 +82,7 @@ export function BranchesPanel({
                       <span style={{ fontSize: 13, overflowWrap: "anywhere" }}>{pr.title}</span>
                       {pr.isDraft && <Badge variant="default">draft</Badge>}
                     </Row>
-                    <span style={{ fontSize: 11, fontFamily: MONO, color: "#7aa5aa" }}>
+                    <span style={{ fontSize: 11, fontFamily: MONO, color: "#7aa5aa", overflowWrap: "anywhere" }}>
                       {pr.headRefName} → {pr.baseRefName}
                     </span>
                   </div>

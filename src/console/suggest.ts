@@ -17,8 +17,80 @@ export interface SuggestRequest {
   history?: string[];
 }
 
-const PATH_COMMANDS = new Set(["ls", "cat", "less", "more", "head", "tail", "code", "vim", "nano", "rm", "cp", "mv", "mkdir", "touch", "du", "wc", "file", "stat", "tree", "bat", "open"]);
+const PATH_COMMANDS = new Set(["ls", "cat", "less", "more", "head", "tail", "code", "vim", "nano", "rm", "cp", "mv", "mkdir", "touch", "du", "wc", "file", "stat", "tree", "bat", "open", "rg", "grep", "find"]);
 const MAX_ENTRIES = 40;
+
+const STARTERS = ["ls -la", "cd ", "git status", "git log --oneline -10", "git diff --stat", "pwd", "df -h", "docker ps"];
+
+const COMMON_COMMANDS: { cmd: string; line: string; hint?: string }[] = [
+  { cmd: "ls", line: "ls -la", hint: "list files" },
+  { cmd: "cd", line: "cd ", hint: "change directory" },
+  { cmd: "git", line: "git ", hint: "git commands" },
+  { cmd: "cat", line: "cat ", hint: "show file" },
+  { cmd: "head", line: "head -n 40 ", hint: "first lines" },
+  { cmd: "tail", line: "tail -n 40 ", hint: "last lines" },
+  { cmd: "rg", line: "rg ", hint: "search text" },
+  { cmd: "grep", line: "grep -rn ", hint: "search text" },
+  { cmd: "find", line: "find . -maxdepth 3 -name ", hint: "find files" },
+  { cmd: "docker", line: "docker ", hint: "containers" },
+  { cmd: "npm", line: "npm ", hint: "node scripts" },
+  { cmd: "pnpm", line: "pnpm ", hint: "pnpm scripts" },
+  { cmd: "gh", line: "gh ", hint: "GitHub CLI" },
+  { cmd: "ps", line: "ps aux", hint: "processes" },
+  { cmd: "df", line: "df -h", hint: "disk usage" },
+  { cmd: "du", line: "du -sh *", hint: "folder sizes" },
+  { cmd: "pwd", line: "pwd", hint: "current dir" },
+  { cmd: "env", line: "env | sort", hint: "environment" },
+  { cmd: "ss", line: "ss -tulpn", hint: "open ports" },
+  { cmd: "free", line: "free -h", hint: "memory" },
+];
+
+const SUBCOMMANDS: Record<string, { label: string; suffix: string; hint?: string }[]> = {
+  git: [
+    { label: "status", suffix: "status", hint: "working tree" },
+    { label: "diff", suffix: "diff --stat", hint: "changed files" },
+    { label: "log", suffix: "log --oneline -15", hint: "recent commits" },
+    { label: "branch", suffix: "branch -a", hint: "list branches" },
+    { label: "pull", suffix: "pull", hint: "fetch & merge" },
+    { label: "push", suffix: "push", hint: "push branch" },
+    { label: "checkout", suffix: "checkout ", hint: "switch branch" },
+    { label: "stash", suffix: "stash list", hint: "stashes" },
+    { label: "fetch", suffix: "fetch --prune", hint: "update remotes" },
+  ],
+  docker: [
+    { label: "ps", suffix: "ps", hint: "running containers" },
+    { label: "ps -a", suffix: "ps -a", hint: "all containers" },
+    { label: "logs", suffix: "logs --tail 50 ", hint: "container logs" },
+    { label: "compose ps", suffix: "compose ps", hint: "compose services" },
+    { label: "stats", suffix: "stats --no-stream", hint: "resource usage" },
+    { label: "images", suffix: "images", hint: "local images" },
+  ],
+  npm: [
+    { label: "test", suffix: "test", hint: "run tests" },
+    { label: "run build", suffix: "run build", hint: "build project" },
+    { label: "run typecheck", suffix: "run typecheck", hint: "check types" },
+    { label: "run dev", suffix: "run dev", hint: "dev server" },
+    { label: "run", suffix: "run ", hint: "npm script" },
+    { label: "install", suffix: "install", hint: "install deps" },
+  ],
+  pnpm: [
+    { label: "test", suffix: "test", hint: "run tests" },
+    { label: "build", suffix: "build", hint: "build project" },
+    { label: "typecheck", suffix: "typecheck", hint: "check types" },
+    { label: "install", suffix: "install", hint: "install deps" },
+  ],
+  gh: [
+    { label: "pr list", suffix: "pr list", hint: "open PRs" },
+    { label: "pr status", suffix: "pr status", hint: "your PRs" },
+    { label: "pr checks", suffix: "pr checks", hint: "CI status" },
+    { label: "issue list", suffix: "issue list", hint: "open issues" },
+    { label: "repo view", suffix: "repo view", hint: "repo info" },
+  ],
+  tmux: [
+    { label: "ls", suffix: "ls", hint: "list sessions" },
+    { label: "capture-pane", suffix: "capture-pane -p", hint: "print pane" },
+  ],
+};
 
 /**
  * Fixes shorthand a thumb-typist produces: `cd..` -> `cd ..`, `cd...` -> `cd ../..`, `cd....` -> `cd ../../..`.
@@ -146,6 +218,14 @@ function flagChips(line: string, help: string): Chip[] {
     .map((f) => ({ label: f.flag, line: `${base}${f.flag}`, kind: "flag" as const, hint: f.desc || undefined }));
 }
 
+/** Immediate non-hidden subdirectories of `dir` for quick mobile navigation. */
+export function listSubdirs(dir: string, max = 30): string[] {
+  return listDir(dir)
+    .filter((e) => e.dir && !e.name.startsWith("."))
+    .slice(0, max)
+    .map((e) => e.name);
+}
+
 /** Deterministic, instant suggestions. No model involved. */
 export async function localChips(req: SuggestRequest): Promise<Chip[]> {
   const line = normalizeLine(req.line);
@@ -155,11 +235,11 @@ export async function localChips(req: SuggestRequest): Promise<Chip[]> {
   const endsSpace = /\s$/.test(line);
 
   if (!trimmed) {
-    const starters = ["ls -la", "cd ", "git status", "git log --oneline -10", "pwd", "df -h", "docker ps"];
     const hist = [...new Set(req.history ?? [])].slice(-6).reverse();
+    const seen = new Set(hist);
     return [
       ...hist.map((h): Chip => ({ label: h, line: h, kind: "history" })),
-      ...starters.map((s): Chip => ({ label: s.trim(), line: s, kind: "start" })),
+      ...STARTERS.filter((s) => !seen.has(s.trim()) && !seen.has(s)).map((s): Chip => ({ label: s.trim(), line: s, kind: "start" })),
     ];
   }
 
@@ -173,13 +253,34 @@ export async function localChips(req: SuggestRequest): Promise<Chip[]> {
     return [];
   }
 
-  // Single word, still typing the command name: leave that to the model/history.
+  // Single word, still typing the command name: match history first, then common commands.
   if (words.length === 1 && !endsSpace) {
-    return [...new Set(req.history ?? [])].filter((h) => h.startsWith(trimmed) && h !== trimmed).slice(-6).reverse().map((h): Chip => ({ label: h, line: h, kind: "history" }));
+    const histChips = [...new Set(req.history ?? [])]
+      .filter((h) => h.startsWith(trimmed) && h !== trimmed)
+      .slice(-6)
+      .reverse()
+      .map((h): Chip => ({ label: h, line: h, kind: "history" }));
+    const seen = new Set(histChips.map((c) => c.line));
+    const cmdChips = COMMON_COMMANDS.filter((c) => c.cmd.startsWith(trimmed) && !seen.has(c.line)).map(
+      (c): Chip => ({ label: c.line.trim(), line: c.line, kind: "start", hint: c.hint }),
+    );
+    return [...histChips, ...cmdChips].slice(0, 12);
   }
 
   const { token } = splitLast(line);
   const chips: Chip[] = [];
+
+  // Suggest common subcommands for the 2nd token (e.g. `git `, `git st`, `docker lo`, `npm r`).
+  const subs = SUBCOMMANDS[cmd];
+  if (subs && !token.startsWith("-") && ((words.length === 1 && endsSpace) || (words.length === 2 && !endsSpace))) {
+    const prefix = words.length === 2 ? words[1]! : "";
+    for (const s of subs) {
+      if (!prefix || s.suffix.startsWith(prefix) || s.label.startsWith(prefix)) {
+        chips.push({ label: s.label, line: `${cmd} ${s.suffix}`, kind: "start", hint: s.hint });
+      }
+    }
+  }
+
   const looksPath = token.includes("/") || token.startsWith(".") || token.startsWith("~");
   if (token.startsWith("-") || (endsSpace && !PATH_COMMANDS.has(cmd))) {
     chips.push(...flagChips(line, await helpText(req.cwd, words)));

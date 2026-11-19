@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { UI } from "@tbe/ui";
-import { Badge, Button, Choice, Heading, Pane, Text } from "../components";
-import UsageView from '../components/UsageView';
-import { UsageSnapshot } from "../types";
+import { Badge, Button, Choice, Heading, Pane, Text, WrapRow } from "../components";
+import UsageView from "../components/UsageView";
+import type { UsageSnapshot } from "../types";
 
 interface ContextItem {
   kind: "guidance" | "rule" | "skill" | "mcp" | "setting";
@@ -68,19 +68,18 @@ export function ContextView({ usage }: { usage: UsageSnapshot | null }) {
 
   return (
     <UI.VStack spacing={UI.Size.px(12)} align="stretch">
-
       <UsageView usage={usage} />
 
       <Pane padding={12}>
-        <UI.HStack spacing={UI.Size.px(12)} align="center">
+        <WrapRow gap={10}>
           <Heading>AI Context</Heading>
           <Choice label="Project" value={project} options={projects.map((p) => ({ key: p, label: p }))} onChange={setProject} width={320} />
-          <UI.Spacer />
+          <div style={{ flex: "1 1 0%" }} />
           <Text muted>{report ? `~${total.toLocaleString()} tokens of static context` : ""}</Text>
           <Button variant="primary" size="sm" loading={busy} disabled={busy || !project} onClick={() => void load(project)}>
             Rescan
           </Button>
-        </UI.HStack>
+        </WrapRow>
         {error && <Text muted>{error}</Text>}
       </Pane>
 
@@ -101,20 +100,20 @@ export function ContextView({ usage }: { usage: UsageSnapshot | null }) {
           return (
             <Pane key={k.key} padding={12}>
               <UI.VStack spacing={UI.Size.px(8)} align="stretch">
-                <UI.HStack spacing={UI.Size.px(8)} align="center">
+                <WrapRow gap={8}>
                   <Heading>{`${k.title} (${items.length})`}</Heading>
                   <Text muted>{k.hint}</Text>
-                </UI.HStack>
+                </WrapRow>
                 {items.length === 0 && <Text muted>None in effect.</Text>}
                 {items.map((i, idx) => (
                   <UI.VStack key={`${i.path}-${i.name}-${idx}`} spacing={UI.Size.px(2)} align="stretch">
-                    <UI.HStack spacing={UI.Size.px(8)} align="center">
+                    <WrapRow gap={6}>
                       <Badge variant={scopeVariant(i.scope)}>{i.scope}</Badge>
                       <Badge>{i.provider}</Badge>
                       <Text>{i.name}</Text>
-                      <UI.Spacer />
+                      <div style={{ flex: "1 1 0%" }} />
                       {i.approxTokens > 0 && <Text muted>~{i.approxTokens.toLocaleString()} tok</Text>}
-                    </UI.HStack>
+                    </WrapRow>
                     {i.detail && <Text muted>{i.detail}</Text>}
                     <Text muted>{i.path}</Text>
                   </UI.VStack>

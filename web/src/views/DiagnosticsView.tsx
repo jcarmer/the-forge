@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { UI } from "@tbe/ui";
-import { Button, Heading, Pane, StatusBadge, Text } from "../components";
+import { Button, Heading, Pane, StatusBadge, Text, WrapRow } from "../components";
 import type { CheckResult } from "../types";
 import { postAction } from "../hooks/useForgeState";
 
@@ -44,16 +44,16 @@ export function DiagnosticsView({
 
   return (
     <UI.VStack spacing={UI.Size.px(12)} align="stretch">
-      <UI.HStack spacing={UI.Size.px(8)} align="center">
+      <WrapRow gap={8}>
         <Button variant="primary" size="sm" loading={busy === "doctor"} disabled={busy !== null} onClick={() => void runDoctor()}>
           {busy === "doctor" ? "Running..." : "Run Doctor"}
         </Button>
         <Button variant="ghost" size="sm" loading={busy === "provision"} disabled={busy !== null} onClick={() => void runProvision()}>
           {busy === "provision" ? "Provisioning..." : "Run Provision"}
         </Button>
-        <UI.Spacer />
+        <div style={{ flex: "1 1 0%" }} />
         <Text muted>Checked: {checkedAt ? new Date(checkedAt).toLocaleTimeString() : "never"}</Text>
-      </UI.HStack>
+      </WrapRow>
 
       {output && (
         <Pane padding={10}>
@@ -62,16 +62,16 @@ export function DiagnosticsView({
       )}
 
       <Pane padding={12}>
-        <UI.VStack spacing={UI.Size.px(8)} align="stretch">
+        <UI.VStack spacing={UI.Size.px(10)} align="stretch">
           <Heading>Container Doctor Checks</Heading>
           {checks.map((c) => (
             <UI.VStack key={c.name} spacing={UI.Size.px(2)} align="stretch">
-              <UI.HStack spacing={UI.Size.px(10)} align="center">
-                <StatusBadge ok={c.ok}  />
+              <WrapRow gap={8}>
+                <StatusBadge ok={c.ok} />
                 <Text>{c.name}</Text>
-                <UI.Spacer />
+                <div style={{ flex: "1 1 12px" }} />
                 <Text muted>{c.detail}</Text>
-              </UI.HStack>
+              </WrapRow>
               {!c.ok && c.fix && <Text muted>Fix: {c.fix}</Text>}
             </UI.VStack>
           ))}
@@ -79,16 +79,16 @@ export function DiagnosticsView({
       </Pane>
 
       <Pane padding={12}>
-        <UI.VStack spacing={UI.Size.px(8)} align="stretch">
+        <UI.VStack spacing={UI.Size.px(10)} align="stretch">
           <Heading>Auth Status (Claude / Codex / GH / Tailscale)</Heading>
           {auth.map((c) => (
             <UI.VStack key={c.name} spacing={UI.Size.px(2)} align="stretch">
-              <UI.HStack spacing={UI.Size.px(10)} align="center">
+              <WrapRow gap={8}>
                 <StatusBadge ok={c.ok} okText="OK" failText="MISSING" />
                 <Text>{c.name}</Text>
-                <UI.Spacer />
+                <div style={{ flex: "1 1 12px" }} />
                 <Text muted>{c.detail}</Text>
-              </UI.HStack>
+              </WrapRow>
               {!c.ok && c.fix && <Text muted>Fix: {c.fix}</Text>}
             </UI.VStack>
           ))}

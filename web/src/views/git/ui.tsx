@@ -154,7 +154,7 @@ export function CopyButton({ text, label = "Copy" }: { text: string; label?: str
 
 /** Wraps children in a flex-wrap row. */
 export function Row({ children, gap = 8, align = "center" }: { children: ReactNode; gap?: number; align?: CSSProperties["alignItems"] }) {
-  return <div style={{ display: "flex", flexWrap: "wrap", alignItems: align, gap }}>{children}</div>;
+  return <div style={{ display: "flex", flexWrap: "wrap", alignItems: align, gap, minWidth: 0 }}>{children}</div>;
 }
 
 /** Inline error inside a dialog. */

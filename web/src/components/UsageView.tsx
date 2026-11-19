@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { UI } from "@tbe/ui";
-import { Button, Choice, Heading, Input, Pane, Progress, Text } from "../components";
-import type { RouteDecision, TaskComplexity, UsageSnapshot } from "../types";
+import { Button, Heading, Pane, Progress, Text, WrapRow } from "../components";
+import type { UsageSnapshot } from "../types";
 import { postAction } from "../hooks/useForgeState";
 
 function daysUntil(iso: string): string {
@@ -18,16 +18,12 @@ export default function UsageView({ usage }: { usage: UsageSnapshot | null }) {
   const entries = (usage?.entries ?? []).filter((e) => expanded || e.scope !== "5h");
 
   async function refreshUsage() {
-    console.log('test');
     setBusy(true);
     try {
-      console.log('test1');
       await postAction("/api/actions/usage-refresh");
     } catch (error) {
-      console.log('test2');
       console.error("Error refreshing usage:", error);
     } finally {
-      console.log('test3');
       setBusy(false);
     }
   }
@@ -36,9 +32,9 @@ export default function UsageView({ usage }: { usage: UsageSnapshot | null }) {
     <UI.VStack spacing={UI.Size.px(12)} align="stretch">
       <Pane padding={12}>
         <UI.VStack spacing={UI.Size.px(10)} align="stretch">
-          <UI.HStack spacing={UI.Size.px(8)} align="center">
+          <WrapRow gap={8}>
             <Heading>AI Provider Quotas</Heading>
-            <UI.Spacer />
+            <div style={{ flex: "1 1 0%" }} />
             <Text muted>
               {usage ? `Collected ${new Date(usage.collectedAt).toLocaleTimeString()}` : "No usage snapshot yet"}
             </Text>
@@ -48,23 +44,23 @@ export default function UsageView({ usage }: { usage: UsageSnapshot | null }) {
             <Button variant="primary" size="sm" loading={busy} disabled={busy} onClick={() => void refreshUsage()}>
               {busy ? "Refreshing..." : "Refresh Usage"}
             </Button>
-          </UI.HStack>
+          </WrapRow>
 
           {entries.length ? (
             <UI.VStack spacing={UI.Size.px(8)} align="stretch">
               {entries.map((e, i) => (
                 <UI.VStack key={`${e.provider}-${e.scope}-${e.model ?? i}`} spacing={UI.Size.px(4)} align="stretch">
-                  <UI.HStack spacing={UI.Size.px(8)}>
+                  <WrapRow gap={8}>
                     <Text>{e.provider}</Text>
                     <Text muted>
                       ({e.scope}
                       {e.model ? ` / ${e.model}` : ""})
                     </Text>
-                    <UI.Spacer />
+                    <div style={{ flex: "1 1 0%" }} />
                     <Text muted>
                       {expanded ? `Resets ${new Date(e.resetsAt).toLocaleString()}` : `Resets ${daysUntil(e.resetsAt)}`}
                     </Text>
-                  </UI.HStack>
+                  </WrapRow>
                   <Progress
                     value={e.remainingPct}
                     max={100}

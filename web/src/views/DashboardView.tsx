@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { UI } from "@tbe/ui";
-import { Badge, Button, Heading, Input, Pane, Text, TextDialog } from "../components";
+import { Badge, Button, Heading, Input, Pane, Text, TextDialog, WrapRow } from "../components";
 import { postAction } from "../hooks/useForgeState";
 
 interface Tile {
@@ -112,74 +112,95 @@ export function DashboardView() {
 
       {configuring && tiles && (
         <Pane padding={12}>
-          <UI.VStack spacing={UI.Size.px(8)} align="stretch">
+          <UI.VStack spacing={UI.Size.px(10)} align="stretch">
             <Heading>Configure launch pad</Heading>
             <Text muted>Reorder, hide or add tiles. Changes save immediately. VS Code workspaces are discovered from /projects.</Text>
             {tiles.map((t, i) => (
-              <UI.HStack key={t.id} spacing={UI.Size.px(8)} align="center">
-                <Button variant="ghost" size="sm" disabled={i === 0} onClick={() => move(i, -1)}>▲</Button>
-                <Button variant="ghost" size="sm" disabled={i === tiles.length - 1} onClick={() => move(i, 1)}>▼</Button>
-                <span style={{ opacity: t.hidden ? 0.45 : 1, minWidth: 220 }}>{t.label}</span>
+              <WrapRow
+                key={t.id}
+                gap={8}
+                style={{ paddingBottom: 8, borderBottom: "1px solid rgb(11 127 134 / 0.25)" }}
+              >
+                <div style={{ display: "inline-flex", gap: 4, flexShrink: 0 }}>
+                  <Button variant="ghost" size="sm" disabled={i === 0} onClick={() => move(i, -1)} aria-label={`Move ${t.label} up`}>
+                    ▲
+                  </Button>
+                  <Button variant="ghost" size="sm" disabled={i === tiles.length - 1} onClick={() => move(i, 1)} aria-label={`Move ${t.label} down`}>
+                    ▼
+                  </Button>
+                </div>
+                <span style={{ opacity: t.hidden ? 0.45 : 1, flex: "1 1 140px", minWidth: 0, overflowWrap: "anywhere" }}>{t.label}</span>
                 <Badge>{KIND_LABEL[t.kind]}</Badge>
-                <UI.Spacer />
-                <Button variant="ghost" size="sm" onClick={() => void update(tiles.map((x) => (x.id === t.id ? { ...x, hidden: !x.hidden } : x)))}>
-                  {t.hidden ? "Show" : "Hide"}
-                </Button>
-                {t.kind === "custom" && (
-                  <Button variant="danger" size="sm" onClick={() => void update(tiles.filter((x) => x.id !== t.id))}>Remove</Button>
-                )}
-              </UI.HStack>
+                <WrapRow gap={6}>
+                  <Button variant="ghost" size="sm" onClick={() => void update(tiles.map((x) => (x.id === t.id ? { ...x, hidden: !x.hidden } : x)))}>
+                    {t.hidden ? "Show" : "Hide"}
+                  </Button>
+                  {t.kind === "custom" && (
+                    <Button variant="danger" size="sm" onClick={() => void update(tiles.filter((x) => x.id !== t.id))}>
+                      Remove
+                    </Button>
+                  )}
+                </WrapRow>
+              </WrapRow>
             ))}
             <Heading>Add custom tile</Heading>
-            <UI.HStack spacing={UI.Size.px(8)} align="center">
+            <div className="forge-grid-form">
               <Input placeholder="Label" value={draft.label} onChange={(e) => setDraft({ ...draft, label: e.target.value })} />
               <Input placeholder="Link (https://...)" value={draft.url} onChange={(e) => setDraft({ ...draft, url: e.target.value })} />
               <Input placeholder="Command to run in the container" value={draft.command} onChange={(e) => setDraft({ ...draft, command: e.target.value })} />
-              <Button size="sm" onClick={addCustom} disabled={!draft.label.trim() || (!draft.url.trim() && !draft.command.trim())}>Add</Button>
-            </UI.HStack>
+              <div>
+                <Button size="sm" onClick={addCustom} disabled={!draft.label.trim() || (!draft.url.trim() && !draft.command.trim())}>
+                  Add
+                </Button>
+              </div>
+            </div>
           </UI.VStack>
         </Pane>
       )}
 
-      <UI.Wrap horizontalSpacing={UI.Size.px(12)} verticalSpacing={UI.Size.px(12)}>
+      <div className="forge-grid-cards">
         {visible.map((t) => (
-          <Pane key={t.id} width={280} padding={14}>
+          <Pane key={t.id} padding={14}>
             <UI.VStack spacing={UI.Size.px(8)} align="stretch">
-              <UI.HStack spacing={UI.Size.px(8)} align="center">
+              <WrapRow gap={8} justify="space-between">
                 <Heading>{t.label}</Heading>
-                <UI.Spacer />
                 <Badge>{KIND_LABEL[t.kind]}</Badge>
-              </UI.HStack>
+              </WrapRow>
               <Text muted>{t.description ?? t.path ?? (t.port ? `:${t.port}` : t.command ?? t.url ?? "")}</Text>
-              <UI.HStack spacing={UI.Size.px(6)}>
+              <WrapRow gap={6}>
                 {web(t) && (
                   <Button variant="primary" size="sm" onClick={() => window.open(web(t), "_blank", "noopener")}>
                     {t.kind === "workspace" ? "Open (web)" : "Open"}
                   </Button>
                 )}
                 {desktop(t) && (
-                  <Button variant="ghost" size="sm" onClick={() => (window.location.href = desktop(t)!)}>Desktop</Button>
+                  <Button variant="ghost" size="sm" onClick={() => (window.location.href = desktop(t)!)}>
+                    Desktop
+                  </Button>
                 )}
                 {t.command && (
-                  <Button variant="secondary" size="sm" loading={busy === t.id} disabled={busy !== null} onClick={() => void runCommand(t)}>Run</Button>
+                  <Button variant="secondary" size="sm" loading={busy === t.id} disabled={busy !== null} onClick={() => void runCommand(t)}>
+                    Run
+                  </Button>
                 )}
-              </UI.HStack>
+              </WrapRow>
             </UI.VStack>
           </Pane>
         ))}
-      </UI.Wrap>
+      </div>
       {tiles && visible.length === 0 && <Text muted>Nothing visible. Use Configure to show or add tiles.</Text>}
 
       {/* Footer: sticks to the bottom of the view's scroll area. */}
       <div style={{ position: "sticky", bottom: 0, zIndex: 5, paddingTop: 8, background: "var(--background)" }}>
         <Pane padding={10}>
-          <UI.HStack spacing={UI.Size.px(12)} align="center">
-            <Text muted>{visible.length} shown{tiles && tiles.length > visible.length ? ` · ${tiles.length - visible.length} hidden` : ""}</Text>
-            <UI.Spacer />
+          <WrapRow gap={10} justify="space-between">
+            <Text muted>
+              {visible.length} shown{tiles && tiles.length > visible.length ? ` · ${tiles.length - visible.length} hidden` : ""}
+            </Text>
             <Button variant={configuring ? "primary" : "secondary"} size="sm" onClick={() => setConfiguring((c) => !c)}>
               {configuring ? "Done" : "Configure"}
             </Button>
-          </UI.HStack>
+          </WrapRow>
         </Pane>
       </div>
 

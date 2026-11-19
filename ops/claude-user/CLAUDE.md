@@ -18,3 +18,10 @@ A local-model MCP server runs on the user's GPU. Its tools are **deferred**: the
 - `local_draft_code` is for first drafts of boilerplate only. Review its output before applying it.
 - **Do not rely on it** for decisions, security-sensitive judgment, or exact line-level facts. Verify anything you will act on or quote by reading the file yourself.
 - If a tool call fails or the server is not connected, say so briefly and continue without it. Do not retry in a loop.
+
+## Shell read & search guardrails
+- Never run unbounded `rg`, `grep -r`, `find`, or `head`/`tail` over 200 lines in Bash; use `Grep` (with `head_limit`) and `Read` (with `offset`/`limit`).
+
+## Fast exploration (`fast-explore` skill)
+- On turn 1 of any multi-file investigation, call `ToolSearch` (`select:mcp__ollama-helper__local_code_search_and_scan,mcp__ollama-helper__local_summarize_files`) alongside your initial batched `Read`/`Grep`/`Glob` calls.
+- Use `fast-explore` to sweep directories with `ollama-helper` and batch follow-up file reads into a single step.

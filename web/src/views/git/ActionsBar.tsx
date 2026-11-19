@@ -67,7 +67,7 @@ export function ActionsBar({
               Sync from {mainBranch}
             </Button>
           )}
-          <div style={{ flex: 1, minWidth: 16 }} />
+          <div style={{ flex: 1 }} />
           <Button variant="danger" size="md" disabled={disabled || noneSelected} onClick={onDiscard}>
             Discard changes...
           </Button>

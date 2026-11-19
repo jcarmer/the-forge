@@ -1,7 +1,8 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { UI } from "@tbe/ui";
-import { Badge, Button, Heading, Pane, Text } from "../components";
+import { Badge, Button, Heading, Pane, Text, WrapRow } from "../components";
 import { postAction } from "../hooks/useForgeState";
+import { copyText } from "./git/ui";
 
 interface Totals { input: number; output: number; cacheRead: number; cacheCreate: number; total: number; fresh: number }
 interface McpUsage { server: string; calls: number; tools: Record<string, number>; attributedFresh: number }
@@ -116,10 +117,10 @@ function SplitBar({ parts }: { parts: { label: string; ms: number; color: string
 
 function Stat({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
-    <div style={{ minWidth: 120 }}>
+    <div style={{ flex: "1 1 130px", minWidth: 110 }}>
       <div style={{ fontSize: 11, color: "#7aa5aa", textTransform: "uppercase", letterSpacing: 0.5 }}>{label}</div>
       <div style={{ fontSize: 20, color: "#d6fbff", fontFamily: "var(--font-mono)" }}>{value}</div>
-      {sub && <div style={{ fontSize: 11, color: "#7aa5aa" }}>{sub}</div>}
+      {sub && <div style={{ fontSize: 11, color: "#7aa5aa", overflowWrap: "anywhere" }}>{sub}</div>}
     </div>
   );
 }
@@ -140,37 +141,38 @@ function FindingList({
       {items.map((f) => {
         const isApplied = Boolean(f.actionId && appliedIds?.has(f.actionId));
         return (
-          <div key={f.key} style={{ padding: "6px 8px", borderLeft: `2px solid ${f.severity === "suggest" ? "#ff9900" : f.severity === "good" ? "#39ff14" : "#00f3ff"}`, background: "rgba(0, 243, 255, 0.03)" }}>
-            <UI.HStack spacing={UI.Size.px(8)} align="center">
+          <div key={f.key} style={{ padding: "6px 8px", borderLeft: `2px solid ${f.severity === "suggest" ? "#ff9900" : f.severity === "good" ? "#39ff14" : "#00f3ff"}`, background: "rgba(0, 243, 255, 0.03)", minWidth: 0 }}>
+            <WrapRow gap={8}>
               <Badge variant={SEV[f.severity].variant}>{SEV[f.severity].word}</Badge>
               <Text>{f.title}</Text>
               {f.extra && <Text muted>{f.extra}</Text>}
-              <UI.Spacer />
               {f.actionId && onEnact && (
-                isApplied ? (
-                  <Badge variant="success">Enacted in repo</Badge>
-                ) : (
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    loading={enactingId === f.actionId}
-                    disabled={Boolean(enactingId)}
-                    onClick={() => onEnact(f.actionId!)}
-                  >
-                    Enact in the-forge
-                  </Button>
-                )
+                <div style={{ marginLeft: "auto" }}>
+                  {isApplied ? (
+                    <Badge variant="success">Enacted in repo</Badge>
+                  ) : (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      loading={enactingId === f.actionId}
+                      disabled={Boolean(enactingId)}
+                      onClick={() => onEnact(f.actionId!)}
+                    >
+                      Enact in the-forge
+                    </Button>
+                  )}
+                </div>
               )}
-            </UI.HStack>
-            <div style={{ marginLeft: 4, marginTop: 2, fontSize: 12, color: "#7aa5aa" }}>{f.detail}</div>
+            </WrapRow>
+            <div style={{ marginLeft: 4, marginTop: 4, fontSize: 12, color: "#7aa5aa", overflowWrap: "anywhere" }}>{f.detail}</div>
             {f.remediation && (
-              <div style={{ marginLeft: 4, marginTop: 4, fontSize: 12, color: "#d6fbff" }}>
+              <div style={{ marginLeft: 4, marginTop: 4, fontSize: 12, color: "#d6fbff", overflowWrap: "anywhere" }}>
                 <span style={{ color: "#00f3ff", fontWeight: 600 }}>How to fix: </span>
                 {f.remediation}
               </div>
             )}
             {f.evidence.map((e) => (
-              <div key={e} style={{ marginLeft: 12, marginTop: 2, fontSize: 12, color: "#7aa5aa", fontFamily: "var(--font-mono)" }}>
+              <div key={e} style={{ marginLeft: 12, marginTop: 2, fontSize: 12, color: "#7aa5aa", fontFamily: "var(--font-mono)", overflowWrap: "anywhere" }}>
                 · {e}
               </div>
             ))}
@@ -191,41 +193,42 @@ function ImprovementCard({
   enactingId: string | null;
 }) {
   return (
-    <div style={{ padding: 10, border: "1px solid rgba(0, 243, 255, 0.18)", borderRadius: 4, background: "rgba(0, 18, 24, 0.45)" }}>
+    <div style={{ padding: 10, border: "1px solid rgba(0, 243, 255, 0.18)", borderRadius: 4, background: "rgba(0, 18, 24, 0.45)", minWidth: 0 }}>
       <UI.VStack spacing={UI.Size.px(6)} align="stretch">
-        <UI.HStack spacing={UI.Size.px(8)} align="center">
+        <WrapRow gap={8}>
           <Badge variant={item.applied ? "success" : PRIORITY_BADGE[item.priority]}>
             {item.applied ? "enacted" : item.priority}
           </Badge>
           <Badge variant="info">{item.kind === "action" ? "repo action" : "data collection"}</Badge>
           <Text>{item.title}</Text>
-          <UI.Spacer />
-          {item.applied ? (
-            <Badge variant="success">Active in /opt/the-forge</Badge>
-          ) : (
-            <Button
-              variant="primary"
-              size="sm"
-              loading={enactingId === item.id}
-              disabled={Boolean(enactingId)}
-              onClick={() => onEnact(item.id, item.customRule)}
-            >
-              {item.kind === "action" ? "Enact change" : "Enact data collection"}
-            </Button>
-          )}
-        </UI.HStack>
-        <div style={{ fontSize: 12, color: "#7aa5aa" }}>
+          <div style={{ marginLeft: "auto" }}>
+            {item.applied ? (
+              <Badge variant="success">Active in /opt/the-forge</Badge>
+            ) : (
+              <Button
+                variant="primary"
+                size="sm"
+                loading={enactingId === item.id}
+                disabled={Boolean(enactingId)}
+                onClick={() => onEnact(item.id, item.customRule)}
+              >
+                {item.kind === "action" ? "Enact change" : "Enact data collection"}
+              </Button>
+            )}
+          </div>
+        </WrapRow>
+        <div style={{ fontSize: 12, color: "#7aa5aa", overflowWrap: "anywhere" }}>
           <strong style={{ color: "#9ec5ca" }}>Observed: </strong>
           {item.why}
         </div>
-        <div style={{ fontSize: 12, color: "#d6fbff" }}>
+        <div style={{ fontSize: 12, color: "#d6fbff", overflowWrap: "anywhere" }}>
           <strong style={{ color: "#00f3ff" }}>Permanent change: </strong>
           {item.guidance}
         </div>
-        <div style={{ fontSize: 11, color: "#7aa5aa", fontFamily: "var(--font-mono)" }}>
+        <div style={{ fontSize: 11, color: "#7aa5aa", fontFamily: "var(--font-mono)", overflowWrap: "anywhere" }}>
           Files: {item.targetFiles.join(", ")}
         </div>
-        <pre style={{ margin: 0, padding: 8, fontSize: 11, color: "#9ec5ca", background: "rgba(0, 0, 0, 0.35)", borderRadius: 3, overflowX: "auto", fontFamily: "var(--font-mono)" }}>
+        <pre style={{ margin: 0, padding: 8, fontSize: 11, color: "#9ec5ca", background: "rgba(0, 0, 0, 0.35)", borderRadius: 3, overflowX: "auto", maxWidth: "100%", WebkitOverflowScrolling: "touch", fontFamily: "var(--font-mono)" }}>
           {item.preview}
         </pre>
       </UI.VStack>
@@ -244,8 +247,8 @@ function Gantt({ turn, calls }: { turn: Turn; calls: Call[] }) {
   const x = (ms: number) => LEFT + Math.max(0, Math.min(1, (ms - turn.startMs) / span)) * W;
   const ticks = [0, 0.25, 0.5, 0.75, 1];
   return (
-    <div style={{ overflowX: "auto", maxHeight: "46vh", overflowY: "auto" }}>
-      <svg width={LEFT + W + 20} height={shown.length * ROW + 24} role="img" aria-label={`Tool calls during turn ${turn.index}`} style={{ fontFamily: "var(--font-mono)", fontSize: 11 }}>
+    <div className="forge-scroll-x" style={{ maxHeight: "46vh", overflowY: "auto" }}>
+      <svg width={LEFT + W + 20} height={shown.length * ROW + 24} role="img" aria-label={`Tool calls during turn ${turn.index}`} style={{ fontFamily: "var(--font-mono)", fontSize: 11, display: "block" }}>
         {ticks.map((t) => (
           <g key={t}>
             <line x1={LEFT + t * W} x2={LEFT + t * W} y1={0} y2={shown.length * ROW} stroke="#0b7f86" strokeOpacity={0.25} />
@@ -329,7 +332,8 @@ export function SessionsView() {
   async function copyBrief(redact: boolean) {
     try {
       const md = await fetchBrief(redact);
-      await navigator.clipboard.writeText(md);
+      const copied = await copyText(md);
+      if (!copied) throw new Error("clipboard unavailable");
       setBriefMsg(`Copied ${md.length.toLocaleString()} characters${redact ? " (prompts and commands removed)" : ""}. Paste it into any LLM.`);
     } catch (e) {
       setBriefMsg(`Could not copy: ${e instanceof Error ? e.message : String(e)}. Use \`sessions digest --out file.md\` instead.`);
@@ -402,21 +406,24 @@ export function SessionsView() {
       {/* ------------------------------------------------ overview + advisor brief */}
       <Pane padding={12}>
         <UI.VStack spacing={UI.Size.px(10)} align="stretch">
-          <UI.HStack spacing={UI.Size.px(10)} align="center">
+          <WrapRow justify="space-between" gap={8}>
             <Heading>Workflow overview</Heading>
-            {TIME_WINDOWS.map((d) => (
-              <Button key={windowLabel(d)} variant={Math.abs(days - d) < 0.001 ? "primary" : "secondary"} size="sm" onClick={() => setDays(d)}>
-                {windowLabel(d)}
-              </Button>
-            ))}
-            <UI.Spacer />
+            <WrapRow gap={4}>
+              {TIME_WINDOWS.map((d) => (
+                <Button key={windowLabel(d)} variant={Math.abs(days - d) < 0.001 ? "primary" : "secondary"} size="sm" onClick={() => setDays(d)}>
+                  {windowLabel(d)}
+                </Button>
+              ))}
+            </WrapRow>
+          </WrapRow>
+          <WrapRow gap={8}>
             <Button variant="primary" size="sm" loading={improveBusy} disabled={improveBusy} onClick={() => void generateWaysToImprove()}>
               Generate ways to improve
             </Button>
             <Button variant="secondary" size="sm" onClick={() => void copyBrief(false)}>Copy advisor brief</Button>
             <Button variant="secondary" size="sm" onClick={() => void copyBrief(true)}>Copy (redacted)</Button>
             <Button variant="secondary" size="sm" onClick={() => void load()}>Refresh</Button>
-          </UI.HStack>
+          </WrapRow>
           <Text muted>
             The advisor brief is a markdown summary of these conversations (time, cost, tools, MCP, skills, sub-agents, findings) written to hand to an LLM and ask how to improve your workflow. Redacted removes prompts, commands and file paths. Everything below is measured from the logs; savings versus not using a skill or MCP cannot be measured and are never claimed.
           </Text>
@@ -426,7 +433,7 @@ export function SessionsView() {
 
           {overview && overview.sessions > 0 && (
             <>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 16, alignItems: "flex-start" }}>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 14, alignItems: "flex-start" }}>
                 <Stat label="Conversations" value={String(overview.sessions)} sub={`${overview.turns} turns, ${overview.calls} tool calls`} />
                 <Stat label="Cost" value={usd(overview.costUsd)} sub={overview.costPartialSessions ? `+ earlier turns of ${overview.costPartialSessions} not logged` : "from SDK cost counters"} />
                 <Stat label="Active time" value={dur(overview.activeMs)} sub={`${dur(overview.idleMs)} idle between turns`} />
@@ -449,15 +456,14 @@ export function SessionsView() {
               <Text muted>
                 Available but never used: skills {overview.availableNeverUsed.skills.length} · sub-agent types {overview.availableNeverUsed.agents.join(", ") || "-"} · MCP {overview.availableNeverUsed.mcpServers.join(", ") || "-"}
               </Text>
-              <UI.HStack spacing={UI.Size.px(10)} align="center">
+              <WrapRow justify="space-between" gap={8}>
                 <Heading>Patterns across conversations</Heading>
-                <UI.Spacer />
                 {!improveReport && (
                   <Button variant="secondary" size="sm" loading={improveBusy} disabled={improveBusy} onClick={() => void generateWaysToImprove()}>
                     Generate self-improvement plan
                   </Button>
                 )}
-              </UI.HStack>
+              </WrapRow>
               <FindingList
                 items={overview.findings.map((f) => ({
                   key: f.id,
@@ -483,22 +489,25 @@ export function SessionsView() {
       {improveReport && (
         <Pane padding={12}>
           <UI.VStack spacing={UI.Size.px(10)} align="stretch">
-            <UI.HStack spacing={UI.Size.px(10)} align="center">
-              <Heading>Self-Improvement Loop</Heading>
-              <Badge variant="info">{improveReport.summary}</Badge>
-              <UI.Spacer />
-              <Text muted>
-                guard blocks: {improveReport.telemetry.bashGuardBlocks} · antigravity sessions: {improveReport.telemetry.antigravitySessions} · hook events: {improveReport.telemetry.hookEvents}
-              </Text>
-              <Button variant="secondary" size="sm" loading={improveBusy} disabled={improveBusy} onClick={() => void generateWaysToImprove()}>
-                Re-evaluate
-              </Button>
-            </UI.HStack>
+            <WrapRow justify="space-between" gap={8}>
+              <WrapRow gap={8}>
+                <Heading>Self-Improvement Loop</Heading>
+                <Badge variant="info">{improveReport.summary}</Badge>
+              </WrapRow>
+              <WrapRow gap={8}>
+                <Text muted>
+                  guard blocks: {improveReport.telemetry.bashGuardBlocks} · antigravity sessions: {improveReport.telemetry.antigravitySessions} · hook events: {improveReport.telemetry.hookEvents}
+                </Text>
+                <Button variant="secondary" size="sm" loading={improveBusy} disabled={improveBusy} onClick={() => void generateWaysToImprove()}>
+                  Re-evaluate
+                </Button>
+              </WrapRow>
+            </WrapRow>
             <Text muted>
               Every action below edits files directly in <code>/opt/the-forge</code> (under <code>ops/claude-user/</code>) and syncs the active agent configuration so improvements persist across container rebuilds and new sessions.
             </Text>
             {improveReport.ollamaNote && (
-              <div style={{ padding: "6px 10px", borderLeft: "2px solid #00f3ff", fontSize: 12, color: "#d6fbff" }}>
+              <div style={{ padding: "6px 10px", borderLeft: "2px solid #00f3ff", fontSize: 12, color: "#d6fbff", overflowWrap: "anywhere" }}>
                 <strong style={{ color: "#00f3ff" }}>Ollama synthesis: </strong>
                 {improveReport.ollamaNote}
               </div>
@@ -526,16 +535,21 @@ export function SessionsView() {
         <UI.VStack spacing={UI.Size.px(6)} align="stretch">
           <Heading>Conversations</Heading>
           {list?.sessions.map((s) => (
-            <UI.HStack key={s.id} spacing={UI.Size.px(10)} align="center">
-              <Button variant={detail?.session.id === s.id ? "primary" : "secondary"} size="sm" onClick={() => void open(s.id)}>{s.id.slice(0, 8)}</Button>
-              <Text muted>{new Date(s.startedAt).toLocaleString()}</Text>
-              <Text>{s.project ?? ""}</Text>
-              <UI.Spacer />
-              {s.mcp.map((m) => (
-                <Badge key={m.server}>{`${m.server} x${m.calls}`}</Badge>
-              ))}
-              <Text muted>{s.stepCount} steps · {k(s.totals.fresh)} fresh ({pct(s.totals.fresh, list.week.fresh)} of week)</Text>
-            </UI.HStack>
+            <div key={s.id} style={{ padding: "6px 0", borderBottom: "1px solid rgba(0, 243, 255, 0.1)" }}>
+              <WrapRow gap={8} justify="space-between">
+                <WrapRow gap={8}>
+                  <Button variant={detail?.session.id === s.id ? "primary" : "secondary"} size="sm" onClick={() => void open(s.id)}>{s.id.slice(0, 8)}</Button>
+                  <Text muted>{new Date(s.startedAt).toLocaleString()}</Text>
+                  {s.project && <Text>{s.project}</Text>}
+                </WrapRow>
+                <WrapRow gap={6}>
+                  {s.mcp.map((m) => (
+                    <Badge key={m.server}>{`${m.server} x${m.calls}`}</Badge>
+                  ))}
+                  <Text muted>{s.stepCount} steps · {k(s.totals.fresh)} fresh ({pct(s.totals.fresh, list.week.fresh)} of week)</Text>
+                </WrapRow>
+              </WrapRow>
+            </div>
           ))}
           {list && list.sessions.length === 0 && <Text muted>No parseable sessions found.</Text>}
         </UI.VStack>
@@ -546,7 +560,7 @@ export function SessionsView() {
         <Pane padding={12}>
           <UI.VStack spacing={UI.Size.px(10)} align="stretch">
             <Heading>{story.title}</Heading>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 16, alignItems: "flex-start" }}>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 14, alignItems: "flex-start" }}>
               <Stat label="Turns" value={String(story.turns.length)} sub={story.models.join(", ")} />
               <Stat label="Cost" value={usd(story.totals.costUsd)} sub={story.totals.costComplete ? undefined : "earlier turns not in log"} />
               <Stat label="Active" value={dur(story.totals.activeMs)} sub={`${dur(story.totals.idleMs)} idle between turns`} />
@@ -563,13 +577,13 @@ export function SessionsView() {
             />
 
             <Heading>What happened, turn by turn</Heading>
-            <Text muted>Bar length = how long the turn took. Click a turn to see its tool calls below.</Text>
-            <UI.VStack spacing={UI.Size.px(4)} align="stretch">
+            <Text muted>Bar length = how long the turn took. Tap a turn to see its tool calls below.</Text>
+            <UI.VStack spacing={UI.Size.px(6)} align="stretch">
               {story.turns.map((t) => (
-                <div key={t.index} onClick={() => setTurnIdx(t.index)} style={{ cursor: "pointer", padding: "4px 6px", borderLeft: `2px solid ${t.index === turnIdx ? "#00f3ff" : "transparent"}` }}>
-                  <UI.HStack spacing={UI.Size.px(10)} align="center">
+                <div key={t.index} onClick={() => setTurnIdx(t.index)} style={{ cursor: "pointer", padding: "6px 8px", borderLeft: `2px solid ${t.index === turnIdx ? "#00f3ff" : "transparent"}`, background: t.index === turnIdx ? "rgba(0, 243, 255, 0.06)" : "transparent", minWidth: 0 }}>
+                  <WrapRow gap={8}>
                     <Text>{`#${t.index}`}</Text>
-                    <div style={{ width: 160, flexShrink: 0 }}>
+                    <div style={{ flex: "1 1 110px", maxWidth: 160, minWidth: 80 }}>
                       <div style={{ display: "flex", gap: 1, height: 8, width: `${Math.max(3, (t.wallMs / maxTurn) * 100)}%` }}>
                         <div title={`model ${dur(t.modelMs)}`} style={{ flex: `${t.modelMs} 0 1px`, background: PHASE.model, borderRadius: 2 }} />
                         <div title={`tools ${dur(t.toolMs)}`} style={{ flex: `${t.toolMs} 0 1px`, background: PHASE.tools, borderRadius: 2 }} />
@@ -577,16 +591,16 @@ export function SessionsView() {
                       </div>
                     </div>
                     <Text muted>{dur(t.wallMs)} · {t.steps} steps · {t.calls} calls · {usd(t.costUsd)}{t.idleBeforeMs > 300_000 ? ` · after ${dur(t.idleBeforeMs)} away` : ""}</Text>
-                  </UI.HStack>
-                  <div style={{ fontSize: 13, color: "#d6fbff" }}>{t.prompt}</div>
-                  {t.outcome && <div style={{ fontSize: 12, color: "#7aa5aa" }}>→ {t.outcome}</div>}
+                  </WrapRow>
+                  <div style={{ fontSize: 13, color: "#d6fbff", marginTop: 3, overflowWrap: "anywhere" }}>{t.prompt}</div>
+                  {t.outcome && <div style={{ fontSize: 12, color: "#7aa5aa", marginTop: 2, overflowWrap: "anywhere" }}>→ {t.outcome}</div>}
                 </div>
               ))}
             </UI.VStack>
 
             {turn && (
               <>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 16, alignItems: "center" }}>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center" }}>
                   <Heading>{`Turn ${turn.index} tool timeline`}</Heading>
                   {(Object.keys(KIND) as CallKind[]).map((kk) => (
                     <span key={kk} style={{ fontSize: 12, color: "#7aa5aa" }}>
@@ -625,46 +639,54 @@ export function SessionsView() {
       {detail && (
         <Pane padding={12}>
           <UI.VStack spacing={UI.Size.px(10)} align="stretch">
-            <UI.HStack spacing={UI.Size.px(12)} align="center">
-              <Heading>{`Token detail ${detail.session.id.slice(0, 8)}`}</Heading>
-              <Text muted>fresh {k(detail.session.totals.fresh)} · cache read {k(detail.session.totals.cacheRead)} · output {k(detail.session.totals.output)}</Text>
-              <UI.Spacer />
+            <WrapRow justify="space-between" gap={8}>
+              <WrapRow gap={8}>
+                <Heading>{`Token detail ${detail.session.id.slice(0, 8)}`}</Heading>
+                <Text muted>fresh {k(detail.session.totals.fresh)} · cache read {k(detail.session.totals.cacheRead)} · output {k(detail.session.totals.output)}</Text>
+              </WrapRow>
               <Button variant="primary" size="sm" loading={busy} disabled={busy} onClick={() => void explain()}>Explain costly steps (Ollama)</Button>
-            </UI.HStack>
+            </WrapRow>
             <Text muted>Fresh = input + output + cache writes (what the allowance mostly tracks). Per-step shares are of the last 7 days observed here, not of the plan limit.</Text>
             {notesMsg && <Text muted>{notesMsg}</Text>}
             {detail.flags.map((f, i) => (
-              <div key={`${f.stepId}-${f.kind}-${i}`}>
+              <div key={`${f.stepId}-${f.kind}-${i}`} style={{ overflowWrap: "anywhere" }}>
                 <Text>Step {f.index} [{f.kind}]: {f.message}</Text>
                 {f.remediation && (
-                  <div style={{ marginLeft: 12, fontSize: 12, color: "#7aa5aa" }}>
+                  <div style={{ marginLeft: 12, fontSize: 12, color: "#7aa5aa", overflowWrap: "anywhere" }}>
                     <span style={{ color: "#00f3ff" }}>How to fix: </span>{f.remediation}
                   </div>
                 )}
               </div>
             ))}
-            <div style={{ maxHeight: "40vh", overflow: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: "var(--font-mono)", fontSize: 12 }}>
+            <div className="forge-scroll-x" style={{ maxHeight: "40vh", overflowY: "auto" }}>
+              <table style={{ width: "100%", minWidth: 540, borderCollapse: "collapse", fontFamily: "var(--font-mono)", fontSize: 12 }}>
                 <thead>
-                  <tr style={{ textAlign: "left", color: "hsl(var(--muted-foreground))" }}>
-                    <th>#</th><th>Fresh</th><th style={{ width: "22%" }} /><th>% week</th><th>Cache wr</th><th>Cache rd</th><th>Out</th><th>Tools</th>
+                  <tr style={{ textAlign: "left", color: "#7aa5aa" }}>
+                    <th style={{ padding: "4px 8px 4px 0", whiteSpace: "nowrap" }}>#</th>
+                    <th style={{ padding: "4px 8px 4px 0", whiteSpace: "nowrap" }}>Fresh</th>
+                    <th style={{ width: "22%", minWidth: 64, padding: "4px 8px 4px 0" }} />
+                    <th style={{ padding: "4px 8px 4px 0", whiteSpace: "nowrap" }}>% week</th>
+                    <th style={{ padding: "4px 8px 4px 0", whiteSpace: "nowrap" }}>Cache wr</th>
+                    <th style={{ padding: "4px 8px 4px 0", whiteSpace: "nowrap" }}>Cache rd</th>
+                    <th style={{ padding: "4px 8px 4px 0", whiteSpace: "nowrap" }}>Out</th>
+                    <th style={{ padding: "4px 0", whiteSpace: "nowrap" }}>Tools</th>
                   </tr>
                 </thead>
                 <tbody>
                   {detail.session.steps.map((s, i) => (
                     <Fragment key={s.id}>
                       <tr>
-                        <td>{i + 1}</td>
-                        <td>{k(s.fresh)}</td>
-                        <td><div style={{ height: 8, width: `${(s.fresh / maxFresh) * 100}%`, background: "hsl(var(--primary))", borderRadius: 2 }} /></td>
-                        <td>{pct(s.fresh, week?.fresh ?? 0)}</td>
-                        <td>{k(s.cacheCreate)}</td>
-                        <td>{k(s.cacheRead)}</td>
-                        <td>{k(s.output)}</td>
-                        <td>{s.tools.map((t) => t.name.replace(/^mcp__/, "")).join(", ")}</td>
+                        <td style={{ padding: "3px 8px 3px 0", whiteSpace: "nowrap" }}>{i + 1}</td>
+                        <td style={{ padding: "3px 8px 3px 0", whiteSpace: "nowrap" }}>{k(s.fresh)}</td>
+                        <td style={{ padding: "3px 8px 3px 0" }}><div style={{ height: 8, width: `${(s.fresh / maxFresh) * 100}%`, background: "#00f3ff", borderRadius: 2 }} /></td>
+                        <td style={{ padding: "3px 8px 3px 0", whiteSpace: "nowrap" }}>{pct(s.fresh, week?.fresh ?? 0)}</td>
+                        <td style={{ padding: "3px 8px 3px 0", whiteSpace: "nowrap" }}>{k(s.cacheCreate)}</td>
+                        <td style={{ padding: "3px 8px 3px 0", whiteSpace: "nowrap" }}>{k(s.cacheRead)}</td>
+                        <td style={{ padding: "3px 8px 3px 0", whiteSpace: "nowrap" }}>{k(s.output)}</td>
+                        <td style={{ padding: "3px 0" }}>{s.tools.map((t) => t.name.replace(/^mcp__/, "")).join(", ")}</td>
                       </tr>
                       {notes[s.id] && (
-                        <tr><td /><td colSpan={7} style={{ color: "hsl(var(--muted-foreground))" }}>↳ {notes[s.id]}</td></tr>
+                        <tr><td /><td colSpan={7} style={{ color: "#7aa5aa", paddingBottom: 6 }}>↳ {notes[s.id]}</td></tr>
                       )}
                     </Fragment>
                   ))}

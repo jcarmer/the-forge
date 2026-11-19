@@ -32,7 +32,7 @@ export function DiffView({ diff, truncated }: { diff: string; truncated: boolean
         role="region"
         aria-label="File diff"
         tabIndex={0}
-        style={{ maxHeight: 420, overflow: "auto", border: "1px solid #0b7f86", background: "#02080a", fontFamily: MONO, fontSize: 12, lineHeight: 1.45 }}
+        style={{ maxHeight: 420, maxWidth: "100%", overflow: "auto", WebkitOverflowScrolling: "touch", border: "1px solid #0b7f86", background: "#02080a", fontFamily: MONO, fontSize: 12, lineHeight: 1.45 }}
       >
         <div style={{ minWidth: "max-content" }}>
           {shown.map((l, i) => (

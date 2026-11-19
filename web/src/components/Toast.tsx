@@ -70,24 +70,26 @@ export function ToastHost() {
       title={full}
       style={{
         position: "fixed",
-        left: 16,
-        right: 16,
-        bottom: 12,
+        left: "max(10px, env(safe-area-inset-left, 0px))",
+        right: "max(10px, env(safe-area-inset-right, 0px))",
+        bottom: "max(10px, env(safe-area-inset-bottom, 0px))",
         zIndex: 1000,
         display: "flex",
-        alignItems: "center",
-        gap: 10,
-        padding: "6px 12px",
+        alignItems: "flex-start",
+        gap: 8,
+        padding: "8px 10px 8px 12px",
         background: "#02080a",
         border: `1px solid ${color}`,
         borderLeftWidth: 4,
         color: "#d6fbff",
         fontSize: 13,
-        lineHeight: "20px",
+        lineHeight: "19px",
+        maxHeight: "32dvh",
+        overflowY: "auto",
         boxShadow: "0 2px 12px rgb(0 0 0 / 0.6)",
       }}
     >
-      <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+      <span style={{ flex: 1, minWidth: 0, overflowWrap: "anywhere", paddingTop: sticky ? 4 : 0 }}>
         {t.title && <strong>{t.title}: </strong>}
         {t.text}
         {t.url && /^https?:\/\//i.test(t.url) && (
@@ -103,7 +105,21 @@ export function ToastHost() {
         <button
           onClick={dismissToast}
           aria-label="Dismiss message"
-          style={{ background: "none", border: 0, color: "#7aa5aa", cursor: "pointer", fontSize: 16, lineHeight: 1, padding: 0 }}
+          style={{
+            background: "none",
+            border: 0,
+            color: "#7aa5aa",
+            cursor: "pointer",
+            fontSize: 20,
+            lineHeight: 1,
+            minWidth: 36,
+            minHeight: 36,
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            flexShrink: 0,
+            padding: 0,
+          }}
         >
           ×
         </button>

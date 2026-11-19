@@ -7,8 +7,11 @@
   --background: #030a0c;
   --foreground: #d6fbff;
   --text-link: #00f3ff;
+  --primary: 183 100% 50%;
+  --muted-foreground: 186 22% 57%;
   --font-ui: "Orbitron", "Segoe UI", system-ui, sans-serif;
   --font-body: "Rajdhani", "Segoe UI", system-ui, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 html, body, #root {
   background:
@@ -29,4 +32,258 @@ html, body, #root {
   font-family: var(--font-ui);
   -webkit-appearance: none;
   appearance: none;
+  touch-action: manipulation;
+}
+
+/* ── Responsive app shell & shared layout utilities ───────────────────────── */
+
+.forge-shell {
+  width: 100%;
+  height: 100%;
+  height: 100dvh;
+  padding:
+    max(12px, env(safe-area-inset-top, 0px))
+    max(16px, env(safe-area-inset-right, 0px))
+    max(12px, env(safe-area-inset-bottom, 0px))
+    max(16px, env(safe-area-inset-left, 0px));
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.forge-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  min-width: 0;
+}
+
+.forge-header-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1 1 200px;
+}
+
+.forge-header-logo {
+  width: 48px;
+  height: auto;
+  flex-shrink: 0;
+}
+
+.forge-header-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+  min-width: 0;
+}
+
+.forge-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+
+.forge-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  flex-shrink: 0;
+  min-width: 0;
+}
+
+.forge-tab-scroll {
+  flex: 1 1 0%;
+  min-height: 0;
+  min-width: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  padding-top: 10px;
+  padding-bottom: max(12px, env(safe-area-inset-bottom, 0px));
+}
+
+.forge-tab-fill {
+  flex: 1 1 0%;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  padding-top: 8px;
+}
+
+.forge-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.forge-grid-cards {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 270px), 1fr));
+  min-width: 0;
+}
+
+.forge-grid-services {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 290px), 1fr));
+  min-width: 0;
+}
+
+.forge-grid-form {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 190px), 1fr));
+  align-items: center;
+  min-width: 0;
+}
+
+.forge-scroll-x {
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Keep NotchCard (Pane) and badges from blowing out narrow flex parents. */
+.nc-wrapper,
+.nc-inner {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.forge-badge {
+  max-width: 100%;
+  min-width: 0;
+}
+.forge-badge > span:last-child {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Console scrollbar polish */
+.forge-console-chips {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding: 2px 0;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.forge-console-chips::-webkit-scrollbar {
+  display: none;
+}
+
+/* ── Mobile breakpoints (phones <= 640px) ─────────────────────────────────── */
+
+@media (max-width: 640px) {
+  .forge-shell {
+    padding:
+      max(6px, env(safe-area-inset-top, 0px))
+      max(8px, env(safe-area-inset-right, 0px))
+      max(6px, env(safe-area-inset-bottom, 0px))
+      max(8px, env(safe-area-inset-left, 0px));
+    gap: 8px;
+  }
+
+  .forge-header {
+    gap: 6px 8px;
+  }
+
+  .forge-header-logo {
+    width: 32px;
+  }
+
+  .forge-header-brand {
+    flex: 1 1 160px;
+    gap: 8px;
+  }
+
+  .forge-header-actions {
+    gap: 6px;
+  }
+
+  /* Single-row horizontally scrollable tab strip on phones: saves ~80px of vertical height. */
+  .forge-tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    padding-bottom: 2px;
+    gap: 6px;
+  }
+  .forge-tabs::-webkit-scrollbar {
+    display: none;
+  }
+  .forge-tabs > * {
+    flex: 0 0 auto;
+  }
+
+  /* Trim overly wide desktop CornerCutButton padding on phones while keeping touch-friendly height. */
+  .ccb-solid,
+  .ccb-outline,
+  .ccb-ghost {
+    padding: 8px 12px !important;
+    min-height: 36px;
+    font-size: 11px !important;
+  }
+
+  /* Stop iOS Safari from auto-zooming on focused form inputs. */
+  input,
+  textarea,
+  select {
+    font-size: 16px !important;
+  }
+
+  /* Tighter modal framing & bigger close button for mobile thumbs. */
+  .nm-backdrop {
+    padding: 0.5rem !important;
+    align-items: flex-end;
+  }
+
+  .nm-card {
+    max-height: calc(100dvh - 1rem);
+    display: flex;
+    flex-direction: column;
+  }
+
+  .nm-header {
+    padding: 0.875rem 1rem 0.75rem !important;
+    gap: 8px;
+  }
+
+  .nm-title {
+    font-size: 0.95rem !important;
+  }
+
+  .nm-close-btn {
+    width: 38px !important;
+    height: 38px !important;
+  }
+
+  .nm-body {
+    padding: 0.875rem 1rem !important;
+  }
+
+  .nm-body-scrollable {
+    max-height: 62dvh !important;
+  }
+
+  .nm-footer {
+    padding: 0.75rem 1rem 0.875rem !important;
+    flex-wrap: wrap;
+  }
 }

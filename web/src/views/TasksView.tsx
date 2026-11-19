@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { UI } from "@tbe/ui";
-import { Badge, Button, Choice, Heading, Input, Pane, Text } from "../components";
+import { Badge, Button, Choice, Heading, Input, Pane, Text, WrapRow } from "../components";
 import type { RepoStatus, TaskComplexity, TaskRecord } from "../types";
 import { postAction } from "../hooks/useForgeState";
 import { showError, showToast } from "../components/Toast";
@@ -37,7 +37,7 @@ export function TasksView({ tasks, repos }: { tasks: TaskRecord[]; repos: RepoSt
       <Pane padding={12}>
         <UI.VStack spacing={UI.Size.px(8)} align="stretch">
           <Heading>Dispatch Autonomous Worktree Task (executeTask)</Heading>
-          <UI.HStack spacing={UI.Size.px(8)} align="center">
+          <WrapRow gap={8}>
             <Choice label="Repo" value={repoDir} options={repoOptions} onChange={setRepoDir} width={220} />
             <Choice
               label="Complexity"
@@ -50,9 +50,9 @@ export function TasksView({ tasks, repos }: { tasks: TaskRecord[]; repos: RepoSt
               onChange={setComplexity}
               width={140}
             />
-          </UI.HStack>
-          <UI.HStack spacing={UI.Size.px(8)} align="center">
-            <div style={{ width: 520, maxWidth: "100%" }}>
+          </WrapRow>
+          <WrapRow gap={8}>
+            <div style={{ flex: "1 1 240px", maxWidth: 520, minWidth: 0 }}>
               <Input
                 value={prompt}
                 placeholder="Describe the task to execute in an isolated worktree..."
@@ -62,7 +62,7 @@ export function TasksView({ tasks, repos }: { tasks: TaskRecord[]; repos: RepoSt
             <Button variant="primary" size="sm" loading={busy} disabled={busy || !prompt.trim()} onClick={() => void handleDispatch()}>
               {busy ? "Dispatching..." : "Dispatch"}
             </Button>
-          </UI.HStack>
+          </WrapRow>
         </UI.VStack>
       </Pane>
 
@@ -73,13 +73,13 @@ export function TasksView({ tasks, repos }: { tasks: TaskRecord[]; repos: RepoSt
           {tasks.map((t) => (
             <Pane key={t.id} padding={10}>
               <UI.VStack spacing={UI.Size.px(4)} align="stretch">
-                <UI.HStack spacing={UI.Size.px(8)} align="center">
+                <WrapRow gap={8}>
                   <Badge variant={statusVariant(t.status)}>{t.status.toUpperCase()}</Badge>
                   <Text>{t.complexity}</Text>
                   <Text muted>{t.repoDir}</Text>
-                  <UI.Spacer />
+                  <div style={{ flex: "1 1 0%" }} />
                   <Text muted>{new Date(t.startedAt).toLocaleString()}</Text>
-                </UI.HStack>
+                </WrapRow>
                 <Text>{t.prompt}</Text>
                 {t.attempts.length > 0 && (
                   <Text muted>

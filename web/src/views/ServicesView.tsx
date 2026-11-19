@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { UI } from "@tbe/ui";
-import { Badge, Button, Heading, Pane, Text, TextDialog } from "../components";
+import { Badge, Button, Heading, Pane, Text, TextDialog, WrapRow } from "../components";
 import type { ServiceStatus } from "../types";
 import { postAction } from "../hooks/useForgeState";
 import { showError, showToast } from "../components/Toast";
@@ -53,30 +53,30 @@ export function ServicesView({ services, hostname }: { services: ServiceStatus[]
   return (
     <UI.VStack spacing={UI.Size.px(12)} align="stretch">
       <Pane padding={12}>
-        <UI.HStack spacing={UI.Size.px(16)} align="center">
+        <WrapRow gap={10}>
           <Heading>VS Code Web Tunnel</Heading>
-          <a href={`https://vscode.dev/tunnel/${hostname}/projects`} target="_blank" rel="noreferrer">
+          <a href={`https://vscode.dev/tunnel/${hostname}/projects`} target="_blank" rel="noreferrer" style={{ overflowWrap: "anywhere" }}>
             vscode.dev/tunnel/{hostname}/projects
           </a>
-        </UI.HStack>
+        </WrapRow>
       </Pane>
 
       <Pane padding={12}>
         <UI.VStack spacing={UI.Size.px(8)} align="stretch">
-          <UI.HStack spacing={UI.Size.px(16)} align="center">
+          <WrapRow gap={10}>
             <Heading>T3 Pairing</Heading>
             <Button variant="ghost" size="sm" disabled={pairBusy} onClick={() => void requestPair()}>
               {pairBusy ? "..." : pair ? "New pair code" : "Get pair code"}
             </Button>
             {pairError && <Badge variant="danger">{pairError}</Badge>}
-          </UI.HStack>
+          </WrapRow>
           {pair && (
             <>
               <a href={`http://${host}:3773/pair#token=${pair.credential}`} target="_blank" rel="noreferrer">
                 Open T3 and pair this browser
               </a>
               <Text muted>
-                Or enter the code: <code style={{ userSelect: "all" }}>{pair.credential}</code> (single use, expires{" "}
+                Or enter the code: <code style={{ userSelect: "all", wordBreak: "break-all" }}>{pair.credential}</code> (single use, expires{" "}
                 {new Date(pair.expiresAt).toLocaleTimeString()})
               </Text>
             </>
@@ -84,28 +84,27 @@ export function ServicesView({ services, hostname }: { services: ServiceStatus[]
         </UI.VStack>
       </Pane>
 
-      <UI.Wrap horizontalSpacing={UI.Size.px(12)} verticalSpacing={UI.Size.px(12)}>
+      <div className="forge-grid-services">
         {services.map((s) => (
-          <Pane key={s.id} width={320} padding={14}>
+          <Pane key={s.id} padding={14}>
             <UI.VStack spacing={UI.Size.px(8)} align="stretch">
-              <UI.HStack spacing={UI.Size.px(8)} align="center">
+              <WrapRow gap={8} justify="space-between">
                 <Heading>{s.name}</Heading>
-                <UI.Spacer />
                 {s.kind === "preview" ? (
                   <Badge variant={s.state === "running" ? "success" : "default"}>{s.state}</Badge>
                 ) : (
                   <Text muted>:{s.port}</Text>
                 )}
-              </UI.HStack>
+              </WrapRow>
 
-              <UI.HStack spacing={UI.Size.px(8)} align="center">
-                <a href={`http://${host}:${s.port}`} target="_blank" rel="noreferrer">
+              <WrapRow gap={8}>
+                <a href={`http://${host}:${s.port}`} target="_blank" rel="noreferrer" style={{ overflowWrap: "anywhere" }}>
                   http://{host}:{s.port}
                 </a>
                 {s.branch && <Text muted>({s.branch})</Text>}
-              </UI.HStack>
+              </WrapRow>
 
-              <UI.HStack spacing={UI.Size.px(6)}>
+              <WrapRow gap={6}>
                 <Button variant="ghost" size="sm" onClick={() => void openLogs(s.id)}>
                   Logs
                 </Button>
@@ -124,11 +123,11 @@ export function ServicesView({ services, hostname }: { services: ServiceStatus[]
                     </Button>
                   </>
                 )}
-              </UI.HStack>
+              </WrapRow>
             </UI.VStack>
           </Pane>
         ))}
-      </UI.Wrap>
+      </div>
 
       <TextDialog
         open={logModal !== null}

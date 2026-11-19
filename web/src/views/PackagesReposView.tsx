@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { UI } from "@tbe/ui";
-import { Badge, Button, Heading, Pane, Text, TextDialog } from "../components";
+import { Badge, Button, Heading, Pane, Text, TextDialog, WrapRow } from "../components";
 import type { PackageStatus, RepoStatus } from "../types";
 import { postAction } from "../hooks/useForgeState";
 import { showError, showToast } from "../components/Toast";
@@ -71,11 +71,11 @@ export function PackagesReposView({
 
   return (
     <UI.VStack spacing={UI.Size.px(12)} align="stretch">
-      <UI.HStack spacing={UI.Size.px(8)} align="center">
+      <WrapRow gap={8}>
         <Button variant="primary" size="sm" loading={busy === "sync"} disabled={busy !== null} onClick={() => void syncAll()}>
           {busy === "sync" ? "Syncing..." : "Sync Worktrees"}
         </Button>
-      </UI.HStack>
+      </WrapRow>
 
       <Pane padding={12}>
         <UI.VStack spacing={UI.Size.px(10)} align="stretch">
@@ -84,14 +84,14 @@ export function PackagesReposView({
           {packages.map((p) => (
             <Pane key={p.name} padding={10}>
               <UI.VStack spacing={UI.Size.px(8)} align="stretch">
-                <UI.HStack spacing={UI.Size.px(8)} align="center">
+                <WrapRow gap={8}>
                   <Text>
                     {p.name} v{p.version}
                   </Text>
                   {(p.dirty || p.unpushed) && (
                     <Badge variant="warning">{p.dirty ? "dirty uncommitted edits" : "unpushed commits"}</Badge>
                   )}
-                  <UI.Spacer />
+                  <div style={{ flex: "1 1 0%" }} />
                   {p.hasApiDts && (
                     <Button variant="ghost" size="sm" onClick={() => void viewApiDts(p.name)}>
                       View API.d.ts
@@ -100,14 +100,14 @@ export function PackagesReposView({
                   <Button variant="ghost" size="sm" disabled={busy !== null} onClick={() => void rebuildPkg(p.name)}>
                     {busy === `build:${p.name}` ? "Building..." : "Build + Emit .d.ts"}
                   </Button>
-                </UI.HStack>
+                </WrapRow>
 
                 {p.consumers.map((c) => (
-                  <UI.HStack key={c.repo} spacing={UI.Size.px(8)} align="center">
+                  <WrapRow key={c.repo} gap={8}>
                     <Text>{c.repo}</Text>
                     <Text muted>(pinned: {c.pinnedVersion})</Text>
                     {c.updateAvailable && <Badge variant="primary">Update available -&gt; {p.version}</Badge>}
-                    <UI.Spacer />
+                    <div style={{ flex: "1 1 0%" }} />
                     <Button
                       variant="ghost"
                       size="sm"
@@ -116,7 +116,7 @@ export function PackagesReposView({
                     >
                       {c.linked ? "Unlink Local" : "Link Local"}
                     </Button>
-                  </UI.HStack>
+                  </WrapRow>
                 ))}
               </UI.VStack>
             </Pane>
@@ -125,13 +125,13 @@ export function PackagesReposView({
       </Pane>
 
       <Pane padding={12}>
-        <UI.VStack spacing={UI.Size.px(6)} align="stretch">
+        <UI.VStack spacing={UI.Size.px(8)} align="stretch">
           <Heading>Repositories in /projects</Heading>
           {repos.map((r) => (
-            <UI.HStack key={r.name} spacing={UI.Size.px(10)} align="center">
+            <WrapRow key={r.name} gap={8}>
               <Text>{r.name}</Text>
               <Text muted>({r.branch})</Text>
-              <UI.Spacer />
+              <div style={{ flex: "1 1 0%" }} />
               <Badge variant={r.dirty || r.unpushed || r.stashes > 0 ? "warning" : "success"}>
                 {r.dirty || r.unpushed || r.stashes > 0 ? "pending" : "clean"}
               </Badge>
@@ -144,7 +144,7 @@ export function PackagesReposView({
               <Button variant="ghost" size="sm" disabled={busy !== null} onClick={() => void pushRepoBranch(r.name)}>
                 {busy === `push:${r.name}` ? "Pushing..." : "Push"}
               </Button>
-            </UI.HStack>
+            </WrapRow>
           ))}
         </UI.VStack>
       </Pane>

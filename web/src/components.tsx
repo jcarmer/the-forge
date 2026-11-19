@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, type ButtonHTMLAttributes, type CSSProperties, type InputHTMLAttributes, type KeyboardEvent, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useRef, type ButtonHTMLAttributes, type CSSProperties, type InputHTMLAttributes, type KeyboardEvent, type ReactNode } from "react";
 import { CornerCutButton } from "./components/neonblade-ui/corner-cut-button";
 import { Badge as NeonBadge } from "./components/neonblade-ui/badge";
 import { NotchCard } from "./components/neonblade-ui/notch-card";
@@ -31,8 +31,39 @@ const COLOR: Record<Variant, string> = {
 const MUTED = "#7aa5aa";
 const FG = "#d6fbff";
 
+/** Responsive wrapping flex row (unlike @tbe/ui HStack, wraps gracefully on narrow phone screens). */
+export function WrapRow({
+  gap = 8,
+  align = "center",
+  justify,
+  style,
+  children,
+}: {
+  gap?: number;
+  align?: CSSProperties["alignItems"];
+  justify?: CSSProperties["justifyContent"];
+  style?: CSSProperties;
+  children: ReactNode;
+}) {
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", alignItems: align, justifyContent: justify, gap, minWidth: 0, ...style }}>
+      {children}
+    </div>
+  );
+}
+
 /** Card surface with a pixel padding. */
-export function Pane({ padding = 12, width, children }: { padding?: number; width?: number; children: ReactNode }) {
+export function Pane({
+  padding = 12,
+  width,
+  style,
+  children,
+}: {
+  padding?: number;
+  width?: number;
+  style?: CSSProperties;
+  children: ReactNode;
+}) {
   return (
     <NotchCard
       notchSides={["top", "bottom"]}
@@ -44,9 +75,9 @@ export function Pane({ padding = 12, width, children }: { padding?: number; widt
       hoverEffect="none"
       cardColor="#030c0e"
       innerClassName="p-0!"
-      style={{ width, boxSizing: "border-box" }}
+      style={{ width, maxWidth: "100%", minWidth: 0, boxSizing: "border-box", ...style }}
     >
-      <div style={{ padding }}>{children}</div>
+      <div style={{ padding, minWidth: 0 }}>{children}</div>
     </NotchCard>
   );
 }
@@ -62,6 +93,7 @@ export function Heading({ children }: { children: ReactNode }) {
         textTransform: "uppercase",
         color: COLOR.primary,
         textShadow: "0 0 8px rgb(0 243 255 / 0.55)",
+        overflowWrap: "anywhere",
       }}
     >
       {children}
@@ -71,13 +103,13 @@ export function Heading({ children }: { children: ReactNode }) {
 
 /** Body text. `muted` dims secondary details. */
 export function Text({ children, muted = false }: { children: ReactNode; muted?: boolean }) {
-  return <span style={{ fontSize: 13, color: muted ? MUTED : FG }}>{children}</span>;
+  return <span style={{ fontSize: 13, color: muted ? MUTED : FG, overflowWrap: "anywhere" }}>{children}</span>;
 }
 
 /** Label chip. */
 export function Badge({ variant = "default", children }: { variant?: Variant; children?: ReactNode }) {
   return (
-    <NeonBadge color={COLOR[variant]} variant="outline" shape="corner-cut" size="sm" glow={false}>
+    <NeonBadge className="forge-badge" color={COLOR[variant]} variant="outline" shape="corner-cut" size="sm" glow={false}>
       {children}
     </NeonBadge>
   );
@@ -156,9 +188,9 @@ export function Choice<T extends string>({
   width?: number;
 }) {
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+    <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8, maxWidth: "100%", minWidth: 0, flex: "0 1 auto" }}>
       <Text muted>{label}</Text>
-      <div style={{ width }}>
+      <div style={{ width: `min(100%, ${width}px)`, minWidth: 140, maxWidth: "100%", flex: "1 1 160px" }}>
         <NeonSelect
           size="sm"
           variant="corner-cut"
@@ -182,7 +214,7 @@ export function Tabs({ value, onValueChange, children }: { value: string; onValu
 
 export function TabsList({ children }: { children: ReactNode }) {
   return (
-    <div role="tablist" style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+    <div role="tablist" className="forge-tabs">
       {children}
     </div>
   );
@@ -191,26 +223,32 @@ export function TabsList({ children }: { children: ReactNode }) {
 export function TabsTrigger({ value, children }: { value: string; children: ReactNode }) {
   const ctx = useContext(TabsCtx);
   const active = ctx.value === value;
+  const wrapRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (active) wrapRef.current?.scrollIntoView({ inline: "nearest", block: "nearest", behavior: "smooth" });
+  }, [active]);
   return (
-    <CornerCutButton
-      type="button"
-      role="tab"
-      aria-selected={active}
-      onClick={() => ctx.set(value)}
-      color={COLOR.primary}
-      variant={active ? "solid" : "ghost"}
-      size="xs"
-      cornerSize={8}
-      hoverEffect="glow"
-    >
-      {children}
-    </CornerCutButton>
+    <div ref={wrapRef} style={{ display: "inline-flex", flexShrink: 0 }}>
+      <CornerCutButton
+        type="button"
+        role="tab"
+        aria-selected={active}
+        onClick={() => ctx.set(value)}
+        color={COLOR.primary}
+        variant={active ? "solid" : "ghost"}
+        size="xs"
+        cornerSize={8}
+        hoverEffect="glow"
+      >
+        {children}
+      </CornerCutButton>
+    </div>
   );
 }
 
 export function TabsContent({ value, children }: { value: string; children: ReactNode }) {
   const ctx = useContext(TabsCtx);
-  return ctx.value === value ? <div role="tabpanel">{children}</div> : null;
+  return ctx.value === value ? <div role="tabpanel" style={{ minWidth: 0 }}>{children}</div> : null;
 }
 
 /** Modal showing preformatted text (logs, API.d.ts). */
