@@ -25,3 +25,11 @@ A local-model MCP server runs on the user's GPU. Its tools are **deferred**: the
 ## Fast exploration (`fast-explore` skill)
 - On turn 1 of any multi-file investigation, call `ToolSearch` (`select:mcp__ollama-helper__local_code_search_and_scan,mcp__ollama-helper__local_summarize_files`) alongside your initial batched `Read`/`Grep`/`Glob` calls.
 - Use `fast-explore` to sweep directories with `ollama-helper` and batch follow-up file reads into a single step.
+
+## Model & effort tiering
+- Offload quick read-only questions and boilerplate drafts to `ollama-helper` (`ask_local_helper`, `local_draft_code`).
+- Use Sonnet or Flash with medium effort for standard implementation turns, and reserve Opus / high effort for cross-cutting architecture or subtle bugs.
+
+## Context hygiene & cache discipline
+- Do not re-read a file that is already in context unless an external command modified it; after `Edit`, read only the changed line range if needed.
+- Compact context (`/compact`) or delegate the next phase to an isolated sub-agent (`forge-orchestrate`) before context exceeds ~200k tokens or before a long break.

@@ -21,6 +21,7 @@ Rules for tool choice and the `ollama-helper` local-model MCP (it must be loaded
 - `npx tsx src/cli.ts sessions [id] [--ollama]` — token use and MCP calls per T3/Claude conversation, with costly-step findings; `--ollama` adds one-line explanations (only counts and tool names are sent)
 - `npx tsx src/cli.ts sessions story <id> [--redact]` — narrative of one conversation: turns, time split (model vs tools vs you), cost, parallel calls, sub-agents, skills/MCP used, and findings
 - `npx tsx src/cli.ts sessions digest [--days 7] [--redact] [--out file.md]` — measured markdown brief of recent conversations for an LLM to review (workflow, missing skills/MCPs, model choice); `--redact` strips prompts, commands and paths. Also the "Copy advisor brief" button on the web UI Sessions tab
+- `npx tsx src/cli.ts schedule` — list registered jobs, schedule entries (with next run) and the last run; `schedule run <entryId>` runs one entry now and prints its log. Entries are created in the web UI **Schedules** tab
 - `npx tsx src/cli.ts route <trivial|normal|hard>` — preview which provider the router would pick
 - `npx tsx src/cli.ts healthcheck` — check config/docs drift, `/usage` parsers, and newer `qwen-coder` models
 - `npx tsx src/cli.ts migrate-check` — check legacy `C:\projects\sandbox` for uncommitted/unpushed work
@@ -36,3 +37,9 @@ Rules for tool choice and the `ollama-helper` local-model MCP (it must be loaded
 
 ## Pull requests
 Gated agent tasks land via `git.taskMergeMode` in `sandbox.config.ts`: `pr` (default) pushes `task/<id>` and opens a PR into `ai-work`; `pr-merge` also squash-merges it; `direct` is the old local merge. PR URLs show on each task in the Tasks view. If `doctor` flags the GitHub CLI, the `GH_TOKEN` needs **Pull requests: read/write**.
+
+## Scheduled functions and the browser extension
+- **Jobs** are TypeScript functions defined with `defineJob` (`src/schedule/registry.ts`) and listed in `src/jobs/index.ts`. A zod schema describes their parameters; the web UI draws the form from it. Add a job by adding a module and listing it; no UI change needed.
+- **Schedules** (web UI Schedules tab) are entries of `job + when + timezone + params`. One job can have many entries. `when` is daily / weekly / monthly / every N hours or minutes / raw cron, evaluated by `croner`. State is in `/var/lib/the-forge` (the `forge_state` volume): `schedules.json`, `schedule-runs.json`, `scan-cache/`, `collected/`. A restart catches up a missed run once, never repeatedly.
+- **`scan-node-modules`** hashes JS/JSON/script/binary files in every `node_modules` under `roots` and checks `name@version` against OSV `MAL-*` advisories. Unchanged files are re-hashed on a 1, 2, 4... day backoff (cap `maxRecheckDays`); changed files at once. Optional `iocHashFile` lists known-bad SHA-256s and applies to cached hashes immediately.
+- **Browser extension** (`extension/`, read its README): config-only actions edited in the web UI Extension tab; results land in `/var/lib/the-forge/collected/<name>.body` (raw) with a `.meta.json`. The extension authenticates with a token (`ext-token`, rotate from the UI). After the first `up` on this change, run it so the new `forge_state` volume is created.

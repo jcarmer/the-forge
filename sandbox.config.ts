@@ -47,6 +47,7 @@ export default defineManifest({
     t3_config: { mount: "/root/.t3", description: "T3 Code configuration" },
     comfyui_data: { mount: "/root/comfyui", description: "ComfyUI install, venv, nodes, models" },
     vscode_cli: { mount: "/root/.vscode", description: "VS Code tunnel login and server" },
+    forge_state: { mount: "/var/lib/the-forge", description: "Forge runtime state: tasks, schedules, run history, scan caches, data collected by the browser extension" },
   },
 
   ollama: {

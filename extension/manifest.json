@@ -1,0 +1,10 @@
+{
+  "manifest_version": 3,
+  "name": "Forge Collector",
+  "version": "0.1.0",
+  "description": "Runs fetch actions configured in your Forge, on pages you are logged in to, and sends the raw result back to your Forge.",
+  "permissions": ["scripting", "storage"],
+  "optional_host_permissions": ["http://*/*", "https://*/*"],
+  "background": { "service_worker": "background.js" },
+  "options_page": "options.html"
+}

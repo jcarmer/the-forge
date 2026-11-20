@@ -45,6 +45,7 @@ All environment configuration lives in `sandbox.config.ts` and idempotent TypeSc
 | t3_config | /root/.t3 | T3 Code configuration |
 | comfyui_data | /root/comfyui | ComfyUI install, venv, nodes, models |
 | vscode_cli | /root/.vscode | VS Code tunnel login and server |
+| forge_state | /var/lib/the-forge | Forge runtime state: tasks, schedules, run history, scan caches, data collected by the browser extension |
 
 Repos live on a Linux volume (`/projects`), not a Windows mount. GitHub is the sync point.
 
@@ -84,7 +85,7 @@ Usage limits come in three scopes: `5h`, `weekly`, `model_weekly`. Prefer Ollama
 <!-- SANDBOX-FACTS:START (machine-owned; do not edit) -->
 ```json
 {
-  "hash": "edaa1610d7ff699e",
+  "hash": "f8d3c4f80bde3367",
   "services": [
     {
       "name": "comfyui",
@@ -106,6 +107,7 @@ Usage limits come in three scopes: `5h`, `weekly`, `model_weekly`. Prefer Ollama
   "volumes": [
     "claude_config",
     "comfyui_data",
+    "forge_state",
     "nuget_cache",
     "ollama_models",
     "repos",

@@ -24,6 +24,9 @@ import { discoverWorkspaces, loadConfig, mergeTiles, parseConfig, presetTiles, s
 import { consoleRequestAllowed, runCommand } from "../console/run.js";
 import { helpText, listSubdirs, localChips, normalizeLine, ollamaIdeas } from "../console/suggest.js";
 import type { ForgeState, ServiceStatus, TaskRecord } from "../state/forgeState.js";
+import { handleScheduleRoute, isScheduleRoute } from "../schedule/api.js";
+import type { Scheduler } from "../schedule/scheduler.js";
+import { ExtensionStore } from "../extension/store.js";
 
 export interface ServiceController {
   listTargets: () => { name: string; port: number; branch: string; state?: "starting" | "running" | "stopped" }[];
@@ -37,6 +40,8 @@ export interface ForgeApiContext {
   stateDir: string;
   webDistDir: string;
   services: ServiceController;
+  /** Scheduled functions + browser-extension data. Optional so API tests can omit it. */
+  scheduler?: Scheduler;
 }
 
 const MIME_TYPES: Record<string, string> = {
@@ -249,6 +254,13 @@ const SESSION_COVERAGE = [
   { source: "Antigravity CLI", tokens: false, mcp: false, note: "logs are HTTP/config debug output; conversations are binary protobuf, so no per-step data is available" },
   { source: "OpenCode (Ollama)", tokens: false, mcp: false, note: "no session logs are written" },
 ];
+
+const extensionStores = new Map<string, ExtensionStore>();
+function extensionStore(ctx: ForgeApiContext): ExtensionStore {
+  let s = extensionStores.get(ctx.stateDir);
+  if (!s) extensionStores.set(ctx.stateDir, (s = new ExtensionStore(ctx.stateDir)));
+  return s;
+}
 
 function contextProjects(ctx: ForgeApiContext): string[] {
   return listProjects(ctx.projectsRoot, [existsSync("/opt/the-forge") ? "/opt/the-forge" : process.cwd()]);
@@ -494,6 +506,27 @@ export function createForgeRequestHandler(ctx: ForgeApiContext, hub: ForgeStateH
         const help = await helpText(cwd, normalizeLine(line).trim().split(/\s+/));
         const ideas = await ollamaIdeas({ cwd, line, history }, { model: ctx.manifest.ollama.primaryModel, help });
         return sendJson(res, 200, { chips: ideas.chips, ok: ideas.ok, detail: ideas.detail });
+      }
+
+      // Scheduled functions and the browser extension (src/schedule/api.ts holds the route table).
+      if (ctx.scheduler && isScheduleRoute(pathname)) {
+        const hasBody = req.method === "POST" || req.method === "PUT";
+        const body = hasBody ? await readJsonObjectLimited(req, 8 * 1024 * 1024) : {};
+        if (body === null) return sendJson(res, 400, { error: "body must be a JSON object under 8MB" });
+        const r = handleScheduleRoute(ctx.scheduler, extensionStore(ctx), {
+          method: req.method ?? "GET",
+          pathname,
+          body,
+          authorization: req.headers.authorization,
+          fromUi: consoleRequestAllowed(req),
+        });
+        if (r) {
+          if (r.raw) {
+            res.writeHead(r.status, { "content-type": r.raw.contentType, "cache-control": "no-store", "x-content-type-options": "nosniff" });
+            return void res.end(r.raw.text);
+          }
+          return sendJson(res, r.status, r.body);
+        }
       }
 
       if (req.method === "POST" && pathname === "/api/actions/t3-pair") {

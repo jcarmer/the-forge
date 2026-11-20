@@ -26,6 +26,9 @@ services:
       dockerfile: Dockerfile
     container_name: the_forge
     restart: unless-stopped
+    # PID 1 must reap orphaned children. Without an init, `sleep infinity` as PID 1 leaves every
+    # orphaned git/sh/node (VS Code tooling, nohup'd services) as a zombie until the pid limit is hit.
+    init: true
     # Invoke via /bin/bash so the Windows bind-mounted entrypoint.sh never needs +x.
     entrypoint: ["/bin/bash", "/usr/local/bin/entrypoint.sh"]
     command: ["sleep", "infinity"]
@@ -52,6 +55,7 @@ services:
       - ai_sandbox_t3_config:/root/.t3
       - ai_sandbox_comfyui_data:/root/comfyui
       - ai_sandbox_vscode_cli:/root/.vscode
+      - ai_sandbox_forge_state:/var/lib/the-forge
       - C:/projects/local-only/buddy.env:/root/.buddy/.env:ro
       - C:/projects/local-only/meta/antigravity-data:/root/.gemini
       - C:/projects/local-only/meta/rules:/root/.gemini/config/rules
@@ -95,5 +99,7 @@ volumes:
     name: ai_sandbox_comfyui_data
   ai_sandbox_vscode_cli:
     name: ai_sandbox_vscode_cli
+  ai_sandbox_forge_state:
+    name: ai_sandbox_forge_state
   ai_sandbox_tailscale_state:
     name: ai_sandbox_tailscale_state

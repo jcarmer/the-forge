@@ -22,6 +22,9 @@ import { enactImprovement, generateImprovements } from "./sessions/improve.js";
 import { renderStoryText, storyForFile } from "./sessions/story.js";
 import { executeTask } from "./worker/runner.js";
 import { taskStorePath, upsertTaskRecord } from "./worker/taskStore.js";
+import { JOBS } from "./jobs/index.js";
+import { Scheduler } from "./schedule/scheduler.js";
+import { nextRuns } from "./schedule/when.js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const dir = resolve(root, "generated");
@@ -249,6 +252,29 @@ switch (cmd) {
     }
     break;
   }
+  case "schedule": {
+    // schedule list | schedule run <entryId>   (entries are created in the web UI Schedules tab)
+    const sched = new Scheduler({ stateDir: existsSync("/var/lib/the-forge") ? "/var/lib/the-forge" : stateDir, projectsRoot: "/projects", jobs: JOBS });
+    if (rest[0] === "run") {
+      const id = rest[1];
+      if (!id) { console.error("Usage: the-forge schedule run <entryId>"); process.exitCode = 1; break; }
+      const run = await sched.runEntry(id, "manual");
+      console.log(`${run.status}: ${run.summary}`);
+      for (const l of run.log) console.log(`  ${l}`);
+      process.exitCode = run.status === "error" ? 1 : 0;
+      break;
+    }
+    console.log("Jobs:");
+    for (const j of JOBS) console.log(`  ${j.id} - ${j.title}`);
+    console.log("\nEntries:");
+    for (const e of sched.store.entries()) {
+      const next = e.enabled ? nextRuns(e.when, e.timezone, 1)[0]?.toISOString() ?? "never" : "disabled";
+      console.log(`  ${e.id}  ${e.jobId}  ${e.label || "-"}  [${e.when.kind}, ${e.timezone}]  next: ${next}`);
+    }
+    const last = sched.store.runs()[0];
+    if (last) console.log(`\nLast run: ${last.startedAt} ${last.jobId} ${last.status} - ${last.summary}`);
+    break;
+  }
   case "worktree": {
     const [action, repo, taskId] = rest;
     if (!action || !repo || !taskId) {
@@ -393,5 +419,5 @@ switch (cmd) {
     break;
   }
   default:
-    console.log("the-forge <generate|init|build|up|down|rebuild|provision|auth-status|status|doctor|logs [svc]|tunnel-login|healthcheck|migrate-check|clone|usage|route|dispatch|sync|promote|context|sessions|worktree|preview>");
+    console.log("the-forge <generate|init|build|up|down|rebuild|provision|auth-status|status|doctor|logs [svc]|tunnel-login|healthcheck|migrate-check|clone|usage|route|dispatch|sync|promote|context|sessions|schedule|worktree|preview>");
 }

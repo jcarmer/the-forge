@@ -10,12 +10,14 @@ import { SessionsView } from "./views/SessionsView";
 import { DashboardView } from "./views/DashboardView";
 import { ConsoleView } from "./views/ConsoleView";
 import { GitView } from "./views/GitView";
+import { SchedulesView } from "./views/SchedulesView";
+import { ExtensionView } from "./views/ExtensionView";
 import { ToastHost } from "./components/Toast";
 import { useGitRepos } from "./hooks/useGitRepos";
 import { attentionCount } from "./views/gitTileChips";
 import mjolnir from "./../../mjolnir.webp";
 
-const TAB_KEYS = ["dashboard", "services", "diagnostics", "usage", "packages", "tasks", "context", "sessions", "git", "console"] as const;
+const TAB_KEYS = ["dashboard", "services", "diagnostics", "usage", "packages", "tasks", "context", "sessions", "git", "console", "schedules", "extension"] as const;
 type TabKey = (typeof TAB_KEYS)[number];
 
 function tabFromPath(path: string): TabKey {
@@ -63,6 +65,8 @@ export function App() {
         },
         { key: "context", title: "AI Context", content: <ContextView usage={state.usage} /> },
         { key: "sessions", title: "Sessions", content: <SessionsView /> },
+        { key: "schedules", title: "Schedules", content: <SchedulesView /> },
+        { key: "extension", title: "Extension", content: <ExtensionView /> },
       ]
     : [];
 

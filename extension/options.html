@@ -1,0 +1,21 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Forge Collector</title>
+<style>
+  body { font: 14px system-ui, sans-serif; max-width: 640px; margin: 24px auto; padding: 0 16px; }
+  label { display: block; margin: 12px 0 4px; font-weight: 600; }
+  input { width: 100%; box-sizing: border-box; padding: 6px; }
+  button { margin: 12px 8px 0 0; padding: 6px 12px; }
+  li { margin: 8px 0; } .bad { color: #b00020; } #msg { margin-top: 12px; min-height: 1.2em; }
+</style>
+<h1>Forge Collector</h1>
+<label for="url">Forge URL (e.g. http://ai-sandbox:5173)</label>
+<input id="url" placeholder="http://ai-sandbox:5173">
+<label for="token">Token (create one in the Forge web UI, Extension tab)</label>
+<input id="token" type="password" autocomplete="off">
+<button id="save">Save, allow this Forge, and sync</button>
+<button id="grant">Allow sites used by actions</button>
+<div id="msg"></div>
+<h2>Actions</h2>
+<ul id="actions"></ul>
+<script src="options.js"></script>

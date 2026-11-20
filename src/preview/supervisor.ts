@@ -7,6 +7,8 @@ import { promisify } from "node:util";
 import type { Manifest } from "../schema.js";
 import { loadProjectConfig } from "../gate/standards.js";
 import { createForgeRequestHandler, ForgeStateHub } from "../web-api/server.js";
+import { JOBS } from "../jobs/index.js";
+import { Scheduler } from "../schedule/scheduler.js";
 
 const execFileAsync = promisify(execFile);
 async function runAsync(cmd: string, args: string[], timeout = 30_000) {
@@ -213,7 +215,11 @@ export function startPreviewLandingServer(manifest: Manifest, projectsRoot = "/p
     syncWorktrees: () => syncPreviewWorktrees(projectsRoot, manifest.git.integrationBranch),
   };
 
-  const apiCtx = { manifest, projectsRoot, stateDir, webDistDir, services };
+  const scheduler = new Scheduler({ stateDir, projectsRoot, jobs: JOBS });
+  scheduler.start();
+  process.once("exit", () => scheduler.stop());
+
+  const apiCtx = { manifest, projectsRoot, stateDir, webDistDir, services, scheduler };
   const hub = new ForgeStateHub(apiCtx);
 
   void hub.refreshFast();
