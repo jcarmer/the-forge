@@ -87,6 +87,20 @@ function tailLog(logPath: string, lines = 200): string {
   return all.slice(-lines).join("\n");
 }
 
+/**
+ * A slice of a log by absolute line index, so a viewer can poll for just the new lines and keep its place.
+ * `to` defaults to the end; `from` defaults to the last `tail` lines.
+ */
+export function readLogLines(logPath: string, opts: { from?: number; to?: number; tail?: number }) {
+  if (!existsSync(logPath)) return { total: 0, start: 0, lines: [] as string[], missing: true };
+  const all = readFileSync(logPath, "utf8").split(/\r?\n/);
+  if (all.length > 0 && all[all.length - 1] === "") all.pop();
+  const total = all.length;
+  const to = Math.min(total, Math.max(0, opts.to ?? total));
+  const from = Math.min(to, Math.max(0, opts.from ?? total - (opts.tail ?? 2000)));
+  return { total, start: from, lines: all.slice(from, to), missing: false };
+}
+
 function buildCoreServices(manifest: Manifest): ServiceStatus[] {
   return manifest.services
     .filter((s) => s.name !== "preview")
@@ -303,6 +317,14 @@ export function createForgeRequestHandler(ctx: ForgeApiContext, hub: ForgeStateH
           clearInterval(keepAlive);
         });
         return;
+      }
+
+      if (req.method === "GET" && pathname.startsWith("/api/logs/") && pathname.endsWith("/lines")) {
+        const name = pathname.slice("/api/logs/".length, -"/lines".length).replace(/[^a-zA-Z0-9._-]/g, "");
+        const known = hub.getState().services.find((s) => s.id === name || s.name === name);
+        const logPath = known?.logFile ?? `/var/log/preview-${name}.log`;
+        const num = (k: string) => (url.searchParams.has(k) ? Number(url.searchParams.get(k)) : undefined);
+        return sendJson(res, 200, { name, logPath, ...readLogLines(logPath, { from: num("from"), to: num("to"), tail: num("tail") }) });
       }
 
       if (req.method === "GET" && pathname.startsWith("/api/logs/")) {

@@ -1,12 +1,11 @@
 import { useState } from "react";
 import { UI } from "@tbe/ui";
-import { Badge, Button, Heading, Pane, Text, TextDialog, WrapRow } from "../components";
+import { Badge, Button, Heading, Pane, Text, WrapRow } from "../components";
 import type { ServiceStatus } from "../types";
 import { postAction } from "../hooks/useForgeState";
 import { showError, showToast } from "../components/Toast";
 
 export function ServicesView({ services, hostname }: { services: ServiceStatus[]; hostname: string }) {
-  const [logModal, setLogModal] = useState<{ name: string; content: string } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
   const [pair, setPair] = useState<{ credential: string; expiresAt: string } | null>(null);
@@ -40,14 +39,8 @@ export function ServicesView({ services, hostname }: { services: ServiceStatus[]
     }
   }
 
-  async function openLogs(name: string) {
-    try {
-      const res = await fetch(`/api/logs/${encodeURIComponent(name)}?tail=200`);
-      const data = (await res.json()) as { content: string };
-      setLogModal({ name, content: data.content });
-    } catch (e) {
-      setLogModal({ name, content: e instanceof Error ? e.message : String(e) });
-    }
+  function openLogs(name: string) {
+    window.open(`/logs/${encodeURIComponent(name)}`, `forge-logs-${name}`, "popup,width=1000,height=700");
   }
 
   return (
@@ -105,7 +98,7 @@ export function ServicesView({ services, hostname }: { services: ServiceStatus[]
               </WrapRow>
 
               <WrapRow gap={6}>
-                <Button variant="ghost" size="sm" onClick={() => void openLogs(s.id)}>
+                <Button variant="ghost" size="sm" onClick={() => openLogs(s.id)}>
                   Logs
                 </Button>
                 {s.kind === "preview" && (
@@ -128,13 +121,6 @@ export function ServicesView({ services, hostname }: { services: ServiceStatus[]
           </Pane>
         ))}
       </div>
-
-      <TextDialog
-        open={logModal !== null}
-        title={logModal ? `Logs: ${logModal.name}` : ""}
-        content={logModal?.content ?? ""}
-        onClose={() => setLogModal(null)}
-      />
     </UI.VStack>
   );
 }
