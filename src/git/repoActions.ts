@@ -17,6 +17,7 @@ import { existsSync, lstatSync, mkdtempSync, readFileSync, rmSync } from "node:f
 import { tmpdir } from "node:os";
 import { isAbsolute, join, normalize, relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
+import { buildResolveSteps, describeConflict, previewMerge, unmergedFiles } from "./conflicts.js";
 import { openPullRequestAsync, squashMergePullRequestAsync } from "./pullRequest.js";
 import { RepoActionError, resolveRepo } from "./repoResolve.js";
 import { invalidateRepoCaches } from "./repoSummary.js";
@@ -80,6 +81,27 @@ export function redact(text: string): string {
   return text
     .replace(/([a-z][a-z0-9+.-]*:\/\/)[^\s/@]+@/gi, "$1")
     .replace(/\b(gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})\b/g, "[redacted]");
+}
+
+/**
+ * Lets the action layer know which agent tasks are running in a repo. While one runs, it will merge or push the
+ * integration branch itself, so a manual push/sync there can collide with it.
+ */
+export interface BusyGuard {
+  integrationBranch: string;
+  /** Ids of tasks currently running in the repo at `dir`. */
+  activeTasks?: (dir: string) => string[];
+}
+
+/** Refuses (HTTP 409) to push/sync the integration branch while an agent task runs in the repo, unless the caller opts in. */
+function assertNotBusy(dir: string, branch: string, guard: BusyGuard | undefined, body: { allowWhileBusy?: unknown }): void {
+  if (!guard?.activeTasks || branch !== guard.integrationBranch || body.allowWhileBusy === true) return;
+  const active = guard.activeTasks(dir);
+  if (active.length === 0) return;
+  throw new RepoActionError(
+    `agent task${active.length === 1 ? "" : "s"} ${active.join(", ")} ${active.length === 1 ? "is" : "are"} running in this repo and will merge into ${branch}; wait for ${active.length === 1 ? "it" : "them"} to finish (or resend with allowWhileBusy: true to override).`,
+    409,
+  );
 }
 
 function msg(r: RunResult, fallback: string): string {
@@ -790,11 +812,12 @@ async function pushBranch(dir: string, branch: string): Promise<{ ok: boolean; d
  * Stages (all, or only `files`), commits, then pushes (`-u origin <branch>` when there is no upstream). Never forces.
  * With `files`, exactly those entries are committed (`git commit -- <paths>`), whatever is staged.
  */
-export function commitAndPush(dir: string, body: { message?: unknown; files?: unknown }): Promise<GitActionResult> {
+export function commitAndPush(dir: string, body: { message?: unknown; files?: unknown; allowWhileBusy?: unknown }, guard?: BusyGuard): Promise<GitActionResult> {
   return withLock(dir, async () => {
     const message = optString(body.message, "message", 20_000)?.trim();
     if (!message) throw new RepoActionError("commit message is required");
     const branch = await requireBranch(dir);
+    assertNotBusy(dir, branch, guard, body);
     const sha = await stageAndCommit(dir, message, body.files);
     if (!(await hasOrigin(dir))) return { ok: true, detail: `committed ${sha?.slice(0, 7)} on ${branch}; no origin remote, so nothing was pushed`, commit: sha, pushed: false };
     const push = await pushBranch(dir, branch);
@@ -1074,11 +1097,12 @@ export function pull(dir: string): Promise<GitActionResult> {
  * Deliberately does NOT call `syncMainToIntegration`: its `checkout -B <branch> origin/<branch>` would move a
  * local integration branch with unpushed commits back to origin.
  */
-export function syncMain(dir: string, opts: { mainBranch: string; integrationBranch: string }): Promise<GitActionResult> {
+export function syncMain(dir: string, opts: { mainBranch: string; integrationBranch: string; activeTasks?: (dir: string) => string[] }, body: { allowWhileBusy?: unknown } = {}): Promise<GitActionResult> {
   return withLock(dir, async () => {
     const branch = await requireBranch(dir);
     if (branch === opts.mainBranch) throw new RepoActionError(`already on ${opts.mainBranch}; use pull instead`);
     if (!(await hasOrigin(dir))) throw new RepoActionError("no origin remote");
+    assertNotBusy(dir, branch, { integrationBranch: opts.integrationBranch, activeTasks: opts.activeTasks }, body);
     const dirty = await git(dir, ["status", "--porcelain", "--untracked-files=no"]);
     if (dirty.out.trim()) throw new RepoActionError("commit or stash your changes before syncing (a conflicted merge could not be cleanly aborted otherwise)");
     const f = await git(dir, ["fetch", "--quiet", "origin"], { timeout: NET_TIMEOUT });
@@ -1090,11 +1114,16 @@ export function syncMain(dir: string, opts: { mainBranch: string; integrationBra
     if (m.code !== 0) {
       const text = msg(m, "merge failed");
       const conflict = /CONFLICT|Automatic merge failed/i.test(`${m.out}\n${m.err}`);
+      // Read the conflicted paths while the merge is still in progress, then abort so nothing changes.
+      const conflictFiles = conflict ? await unmergedFiles(dir) : [];
       if (conflict) await git(dir, ["merge", "--abort"]);
+      if (!conflict) return { ok: false, conflict: false, detail: `merge failed: ${text}` };
       return {
         ok: false,
-        conflict,
-        detail: conflict ? `merging ${target} into ${branch} conflicts; the merge was aborted and nothing changed. Resolve it manually or as an agent task. ${text}` : `merge failed: ${text}`,
+        conflict: true,
+        conflictFiles,
+        resolveSteps: buildResolveSteps(branch, opts.mainBranch, conflictFiles),
+        detail: `Merging ${target} into ${branch} conflicts; the merge was aborted and nothing changed.\n${describeConflict(branch, opts.mainBranch, conflictFiles)}`,
       };
     }
     const after = await headSha(dir);
@@ -1104,6 +1133,38 @@ export function syncMain(dir: string, opts: { mainBranch: string; integrationBra
       return { ok: push.ok, conflict: false, pushed: push.ok, detail: push.ok ? `merged ${target} into ${branch} and ${push.detail}` : `merged ${target} into ${branch} locally, but ${push.detail}` };
     }
     return { ok: true, conflict: false, pushed: false, detail: changed ? `merged ${target} into ${branch} (not pushed)` : `${branch} already contains ${target}` };
+  });
+}
+
+/**
+ * Read-only dry run of `sync-main`: fetches, then predicts whether merging origin/<main> into the current branch would
+ * conflict (and in which files) without touching the working tree, the index or any ref. Works with a dirty tree.
+ */
+export function syncPreview(dir: string, opts: { mainBranch: string }): Promise<GitActionResult> {
+  return withLock(dir, async () => {
+    const branch = await requireBranch(dir);
+    if (branch === opts.mainBranch) throw new RepoActionError(`already on ${opts.mainBranch}; nothing to sync`);
+    if (!(await hasOrigin(dir))) throw new RepoActionError("no origin remote");
+    const f = await git(dir, ["fetch", "--quiet", "origin"], { timeout: NET_TIMEOUT });
+    const stale = f.code !== 0 ? ` (fetch failed, so this is based on the last fetch: ${msg(f, "unknown error")})` : "";
+    const target = `origin/${opts.mainBranch}`;
+    const p = await previewMerge(dir, `refs/heads/${branch}`, `refs/remotes/${target}`);
+    const base = { status: p.status, behind: p.behind, ahead: p.ahead, conflictFiles: p.conflictFiles, truncated: p.truncated, branch, target };
+    switch (p.status) {
+      case "up-to-date":
+        return { ok: true, ...base, detail: `${branch} already contains ${target}; nothing to sync.${stale}` };
+      case "clean":
+        return { ok: true, ...base, detail: `Merging ${target} into ${branch} brings in ${p.behind} commit${p.behind === 1 ? "" : "s"} and would be clean (no conflicts).${stale}` };
+      case "conflicts":
+        return {
+          ok: true,
+          ...base,
+          resolveSteps: buildResolveSteps(branch, opts.mainBranch, p.conflictFiles),
+          detail: `Merging ${target} into ${branch} would conflict.${p.truncated ? " (Some files were not content-checked and are counted as conflicts.)" : ""}\n${describeConflict(branch, opts.mainBranch, p.conflictFiles)}${stale}`,
+        };
+      default:
+        return { ok: false, ...base, detail: `Could not preview the merge: ${p.reason ?? "unknown reason"}${stale}` };
+    }
   });
 }
 
@@ -1243,9 +1304,10 @@ export function cleanMergedBranches(
 }
 
 /** Pushes the checked-out branch (or a specified local `branch`) to `origin` without committing (never forced). */
-export function pushCurrentBranch(dir: string, body: { branch?: unknown } = {}): Promise<GitActionResult> {
+export function pushCurrentBranch(dir: string, body: { branch?: unknown; allowWhileBusy?: unknown } = {}, guard?: BusyGuard): Promise<GitActionResult> {
   return withLock(dir, async () => {
     const target = body.branch !== undefined && body.branch !== null ? await assertBranchName(dir, body.branch, "branch") : await requireBranch(dir);
+    assertNotBusy(dir, target, guard, body);
     if ((await git(dir, ["rev-parse", "--verify", "-q", `refs/heads/${target}`])).code !== 0) {
       throw new RepoActionError(`no local branch named ${target}`);
     }
@@ -1324,6 +1386,8 @@ export interface RepoRouteConfig {
   model: string;
   ollamaBaseUrl?: string;
   fetchImpl?: Fetcher;
+  /** Ids of agent tasks currently running in the repo at `dir`; enables the "agent busy" guard on push/sync. */
+  activeTasks?: (dir: string) => string[];
 }
 
 export interface RepoRouteRequest {
@@ -1346,6 +1410,7 @@ const POST_ROUTES = new Set([
   "discard",
   "pull",
   "sync-main",
+  "sync-preview",
   "stash",
   "stash-pop",
   "stage",
@@ -1376,6 +1441,7 @@ export async function handleRepoRoute(cfg: RepoRouteConfig, req: RepoRouteReques
     const b = req.body;
     const ollama = { model: cfg.model, baseUrl: cfg.ollamaBaseUrl, fetchImpl: cfg.fetchImpl, regenerate: b.regenerate === true };
     const branchOpts = { mainBranch: cfg.mainBranch, integrationBranch: cfg.integrationBranch };
+    const guard: BusyGuard = { integrationBranch: cfg.integrationBranch, activeTasks: cfg.activeTasks };
     let out: unknown;
     switch (req.action) {
       case "changes":
@@ -1394,10 +1460,10 @@ export async function handleRepoRoute(cfg: RepoRouteConfig, req: RepoRouteReques
         if (b.for !== undefined && b.for !== "pr" && b.for !== "commit") throw new RepoActionError('for must be "pr" or "commit"');
         return { status: 200, body: await draftMessage(dir, { ...ollama, mainBranch: cfg.mainBranch, prefer: b.for === "pr" ? "commits" : "changes" }) };
       case "commit-push":
-        out = await commitAndPush(dir, b);
+        out = await commitAndPush(dir, b, guard);
         break;
       case "push":
-        out = await pushCurrentBranch(dir, b);
+        out = await pushCurrentBranch(dir, b, guard);
         break;
       case "create-pr":
         out = await createPr(dir, b, { base: cfg.mainBranch });
@@ -1415,7 +1481,10 @@ export async function handleRepoRoute(cfg: RepoRouteConfig, req: RepoRouteReques
         out = await pull(dir);
         break;
       case "sync-main":
-        out = await syncMain(dir, branchOpts);
+        out = await syncMain(dir, { ...branchOpts, activeTasks: cfg.activeTasks }, b);
+        break;
+      case "sync-preview":
+        out = await syncPreview(dir, branchOpts);
         break;
       case "stash":
         out = await stashPush(dir, b);

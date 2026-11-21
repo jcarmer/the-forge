@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { Badge, Button, Text } from "../../components";
 import { gitPost } from "../../hooks/useGitRepoApi";
-import type { GitRepoSummary, GitStashEntry } from "../../types";
+import type { GitActionResult, GitRepoSummary, GitStashEntry } from "../../types";
 import { pullBlockedReason, syncBlockedReason } from "./selection";
 import { Checkbox, MONO, Row, Section, TextField, type ActionCtx } from "./ui";
 
@@ -36,10 +36,37 @@ export function MorePanel({
 }) {
   const [stashMsg, setStashMsg] = useState("");
   const [stashUntracked, setStashUntracked] = useState(false);
+  /** Latest conflict check / conflicted sync for this repo, kept on screen (a toast would hide the steps). */
+  const [conflictInfo, setConflictInfo] = useState<{ title: string; kind: "ok" | "conflict" | "error"; text: string; steps: string[] } | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [allowBusy, setAllowBusy] = useState(false);
   const disabled = ctx.busy !== null;
   const name = repo.name;
   const pullBlock = pullBlockedReason(repo);
   const syncBlock = syncBlockedReason({ branch: repo.branch, mainBranch, dirty: changeCount > 0 });
+  const busyTasks = repo.agentBusy ?? [];
+  const isIntegration = repo.integrationBranch !== undefined && repo.branch === repo.integrationBranch;
+  const busyBlocksSync = isIntegration && busyTasks.length > 0 && !allowBusy;
+
+  const showResult = (title: string, r: GitActionResult | null) => {
+    if (!r) return;
+    const conflict = Boolean(r.conflict) || r.status === "conflicts";
+    setCopied(false);
+    setConflictInfo({
+      title,
+      kind: !r.ok ? "error" : conflict ? "conflict" : "ok",
+      text: r.detail,
+      steps: Array.isArray(r.resolveSteps) ? r.resolveSteps : [],
+    });
+  };
+  const copySteps = async (steps: string[]) => {
+    try {
+      await navigator.clipboard.writeText(steps.join("\n"));
+      setCopied(true);
+    } catch {
+      setCopied(false); // clipboard blocked: the steps are still selectable on screen
+    }
+  };
 
   return (
     <Section title="More actions">
@@ -52,12 +79,59 @@ export function MorePanel({
         </div>
       </Tool>
 
-      <Tool title={`Sync from ${mainBranch}`}>
+      <Tool title={`Check for conflicts with ${mainBranch}`}>
         <Text muted>
-          {syncBlock ?? `Merges origin/${mainBranch} into ${repo.branch} (a merge commit, no force-push). If it conflicts, the merge is aborted and nothing changes; you will see a CONFLICT message.`}
+          {repo.branch === mainBranch
+            ? `You are on ${mainBranch}; there is nothing to compare.`
+            : `Read-only dry run: fetches, then predicts whether merging origin/${mainBranch} into ${repo.branch} would conflict, and in which files. Nothing is changed, so it is safe to run any time${(repo.behindMain ?? 0) > 0 ? ` (origin/${mainBranch} is ${repo.behindMain} commit${repo.behindMain === 1 ? "" : "s"} ahead of this branch)` : ""}.`}
         </Text>
         <div>
-          <Button variant="secondary" disabled={disabled || syncBlock !== null} loading={ctx.busy === "sync-main"} onClick={() => void ctx.run("sync-main", `Sync from ${mainBranch}`, () => gitPost(name, "sync-main"))}>
+          <Button
+            variant="secondary"
+            disabled={disabled || repo.branch === mainBranch || repo.branch === "(detached)"}
+            loading={ctx.busy === "sync-preview"}
+            onClick={async () => showResult("Conflict check", await ctx.run("sync-preview", "Conflict check", () => gitPost(name, "sync-preview"), { inline: true }))}
+          >
+            Check for conflicts
+          </Button>
+        </div>
+        {conflictInfo && (
+          <div
+            role={conflictInfo.kind === "ok" ? "status" : "alert"}
+            style={{ border: `1px solid ${conflictInfo.kind === "ok" ? "#39ff14" : conflictInfo.kind === "conflict" ? "#ff9900" : "#ff3366"}`, padding: "8px 10px", fontSize: 13, display: "flex", flexDirection: "column", gap: 8 }}
+          >
+            <strong>{conflictInfo.title}</strong>
+            <div style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere", fontFamily: conflictInfo.steps.length ? MONO : undefined }}>{conflictInfo.text}</div>
+            {conflictInfo.steps.length > 0 && (
+              <div>
+                <Button variant="ghost" size="sm" onClick={() => void copySteps(conflictInfo.steps)}>
+                  {copied ? "Copied" : "Copy resolve steps"}
+                </Button>
+              </div>
+            )}
+          </div>
+        )}
+      </Tool>
+
+      <Tool title={`Sync from ${mainBranch}`}>
+        <Text muted>
+          {syncBlock ?? `Merges origin/${mainBranch} into ${repo.branch} (a merge commit, no force-push). If it conflicts, the merge is aborted and nothing changes; you will see the conflicting files and the steps to resolve them in your own clone.`}
+        </Text>
+        {isIntegration && busyTasks.length > 0 && (
+          <Checkbox
+            checked={allowBusy}
+            onChange={setAllowBusy}
+            label={`An agent task is running here (${busyTasks.join(", ")}); sync anyway`}
+            hint="Agent tasks merge into this branch themselves. Wait for them to finish unless you know the task is stuck."
+          />
+        )}
+        <div>
+          <Button
+            variant="secondary"
+            disabled={disabled || syncBlock !== null || busyBlocksSync}
+            loading={ctx.busy === "sync-main"}
+            onClick={async () => showResult(`Sync from ${mainBranch}`, await ctx.run("sync-main", `Sync from ${mainBranch}`, () => gitPost(name, "sync-main", allowBusy ? { allowWhileBusy: true } : {}), { inline: false }))}
+          >
             Sync from {mainBranch}
           </Button>
         </div>

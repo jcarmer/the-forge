@@ -12,4 +12,5 @@ description: Fast, low-token codebase exploration using ollama-helper and batche
 ## 2. Sweep with GPU, verify with bounded Read
 - Use `mcp__ollama-helper__local_code_search_and_scan` to scan directories or answer broad "where is X handled?" questions without adding raw files to Claude context.
 - Use `mcp__ollama-helper__local_summarize_files` to digest long files or logs (>200 lines).
+- Treat helper output as **leads, not facts**: it finds candidate files but can misattribute behaviour or miss the key file. Before concluding how code works, read the cited files (or follow the call chain with `Grep`) yourself.
 - Once you know the exact file and line range, call `Read` with `offset` and `limit` (<= 200 lines) in a single batched step.

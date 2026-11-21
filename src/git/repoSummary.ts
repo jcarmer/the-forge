@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { z } from "zod";
 import { resolve } from "node:path";
+import { previewMergeCached } from "./conflicts.js";
 import { listRepoNames, resolveRepo } from "./repoResolve.js";
 
 const execFileAsync = promisify(execFile);
@@ -49,10 +50,18 @@ export const RepoSummarySchema = z.object({
   openPrs: z.array(OpenPrSchema).nullable(),
   ghAvailable: z.boolean(),
   stashes: z.number(),
+  /** Commits on origin/<main> that HEAD lacks (0 on main itself or when origin/<main> is unknown). */
+  behindMain: z.number(),
+  /** Commits on HEAD that origin/<main> lacks. */
+  aheadOfMain: z.number(),
+  /** Files that would conflict if origin/<main> were merged into HEAD (empty when clean, up to date or unknown). */
+  mainConflicts: z.array(z.string()),
+  /** Ids of agent tasks running in this repo right now (they merge into the integration branch themselves). */
+  agentBusy: z.array(z.string()),
   /** Highest-priority reason, or "clean". */
-  attention: z.enum(["dirty", "behind", "ahead", "prs", "branches", "clean"]),
-  /** All reasons, in priority order: dirty, behind, ahead, prs, branches. */
-  reasons: z.array(z.enum(["dirty", "behind", "ahead", "prs", "branches"])),
+  attention: z.enum(["dirty", "conflicts", "behind", "ahead", "prs", "branches", "clean"]),
+  /** All reasons, in priority order: dirty, conflicts, behind, ahead, prs, branches. */
+  reasons: z.array(z.enum(["dirty", "conflicts", "behind", "ahead", "prs", "branches"])),
 });
 export type RepoSummary = z.infer<typeof RepoSummarySchema>;
 
@@ -65,6 +74,8 @@ export interface SummaryOpts {
   fetchTtlMs?: number;
   /** Explicit user refresh: fetch now and re-query gh, ignoring both caches. */
   refresh?: boolean;
+  /** Ids of agent tasks running in the repo at `dir` (enables the busy indicator). */
+  activeTasks?: (dir: string) => string[];
 }
 
 async function run(cmd: string, args: string[], cwd: string, timeout: number) {
@@ -185,8 +196,24 @@ export async function summarizeRepo(projectsRoot: string, repoName: string, opts
     }
   }
 
+  // Drift from main: counts against origin/<main>, plus a cached (per commit pair) prediction of merge conflicts.
+  let behindMain = 0;
+  let aheadOfMain = 0;
+  let mainConflicts: string[] = [];
+  const originMain = `refs/remotes/origin/${opts.mainBranch}`;
+  if (!detached && branch !== opts.mainBranch && hasRemote) {
+    const preview = await previewMergeCached(dir, "HEAD", originMain);
+    if (preview.status !== "unknown") {
+      behindMain = preview.behind;
+      aheadOfMain = preview.ahead;
+      mainConflicts = preview.conflictFiles;
+    }
+  }
+  const agentBusy = opts.activeTasks ? opts.activeTasks(dir) : [];
+
   const reasons: RepoSummary["reasons"] = [];
   if (changedFiles > 0) reasons.push("dirty");
+  if (mainConflicts.length > 0) reasons.push("conflicts");
   if (behind > 0) reasons.push("behind");
   if (ahead > 0) reasons.push("ahead");
   if (prs && prs.length > 0) reasons.push("prs");
@@ -209,6 +236,10 @@ export async function summarizeRepo(projectsRoot: string, repoName: string, opts
     openPrs: prs,
     ghAvailable: prs !== null,
     stashes: stashRes.code === 0 ? lines(stashRes.out).length : 0,
+    behindMain,
+    aheadOfMain,
+    mainConflicts,
+    agentBusy,
     attention: reasons[0] ?? "clean",
     reasons,
   };

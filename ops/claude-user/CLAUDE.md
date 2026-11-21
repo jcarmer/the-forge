@@ -16,7 +16,7 @@ Installed into `/root/.claude/CLAUDE.md` by `the-forge up` from `ops/claude-user
 A local-model MCP server runs on the user's GPU. Its tools are **deferred**: they appear only as names until you load them with `ToolSearch` (query `select:mcp__ollama-helper__local_code_search_and_scan,mcp__ollama-helper__local_summarize_files`, or `ollama-helper`), so load them yourself before first use.
 - **Use it first** for broad, read-only legwork: searching or scanning many files (`local_code_search_and_scan`), summarizing several files or long logs (`local_summarize_files`), and quick questions that need no repo context (`ask_local_helper`).
 - `local_draft_code` is for first drafts of boilerplate only. Review its output before applying it.
-- **Do not rely on it** for decisions, security-sensitive judgment, or exact line-level facts. Verify anything you will act on or quote by reading the file yourself.
+- **Do not rely on it** for decisions, security-sensitive judgment, exact line-level facts, or conclusions about how code behaves (call chains, which function does what). It ranks files by keyword relevance and its prose often hedges ("likely") or misattributes. Use it to **locate candidate files**, then read them yourself and verify anything you will act on or quote. If you report what it said, say it is unverified.
 - If a tool call fails or the server is not connected, say so briefly and continue without it. Do not retry in a loop.
 
 ## Shell read & search guardrails

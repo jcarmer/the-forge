@@ -1,11 +1,47 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import type { Manifest } from "../schema.js";
 import { run } from "../ops.js";
 import { installClaudeUserConfig, isClaudeUserConfigCurrent } from "./claudeUser.js";
 
 const GH_CRED_HELPER =
   '!f() { [ "$1" = get ] && [ -n "$GH_TOKEN" ] && echo username=x-access-token && echo password=$GH_TOKEN; }; f';
+
+const HELPER_SCRIPT_SRC = "/opt/the-forge/ops/mcp/ollama_helper_mcp.py";
+const HELPER_SCRIPT_DEST = "/root/.gemini/config/tools/ollama_helper_mcp.py";
+const RULES_SRC = "/opt/the-forge/ops/antigravity/rules";
+const RULES_DEST = "/root/.gemini/config/rules";
+
+/** True when `dest` exists and has exactly the repo copy's contents (a missing repo copy counts as current: nothing to install). */
+export function isFileCurrent(src: string, dest: string): boolean {
+  if (!existsSync(src)) return true;
+  return existsSync(dest) && readFileSync(dest, "utf8") === readFileSync(src, "utf8");
+}
+
+/** Copies the repo's file over `dest`, creating the directory if needed. */
+export function installFile(src: string, dest: string, mode = 0o644): void {
+  mkdirSync(dirname(dest), { recursive: true });
+  copyFileSync(src, dest);
+  chmodSync(dest, mode);
+}
+
+/** Markdown files shipped in `srcDir` (non-recursive). Only these are managed; other files in the destination are never touched or removed. */
+function managedRuleNames(srcDir: string): string[] {
+  if (!existsSync(srcDir)) return [];
+  return readdirSync(srcDir, { withFileTypes: true })
+    .filter((e) => e.isFile() && e.name.endsWith(".md"))
+    .map((e) => e.name);
+}
+
+export function isRulesCurrent(srcDir: string, destDir: string): boolean {
+  return managedRuleNames(srcDir).every((n) => isFileCurrent(join(srcDir, n), join(destDir, n)));
+}
+
+export function installRules(srcDir: string, destDir: string): void {
+  for (const n of managedRuleNames(srcDir)) {
+    if (!isFileCurrent(join(srcDir, n), join(destDir, n))) installFile(join(srcDir, n), join(destDir, n));
+  }
+}
 
 export interface ProvisionStep {
   name: string;
@@ -92,6 +128,31 @@ export function buildProvisionSteps(manifest: Manifest): ProvisionStep[] {
         mergeJson("/projects/.vscode/settings.json", vscodeSettings);
         writeJsonIfMissingOrChanged("/projects/.vscode/extensions.json", { recommendations: ["local.tbe-vscode"] });
       },
+    },
+    {
+      // Linux-side default so agents' commits keep LF line endings (the repos are authored from Windows clones too);
+      // only set when the user has not chosen a value, so it never overrides an explicit setting.
+      name: "git-line-endings",
+      check: () => run("git", ["config", "--global", "--get", "core.autocrlf"]).out.trim() !== "",
+      apply: () => {
+        run("git", ["config", "--global", "core.autocrlf", "input"]);
+      },
+    },
+    {
+      // The ollama-helper MCP server (tool names, descriptions, reliability caveats) is versioned in the repo and
+      // installed to the path both the Antigravity and Claude registrations below point at, so a description change
+      // reaches both providers on the next `up`. Running servers pick it up on their next restart.
+      name: "ollama-helper-script",
+      check: () => isFileCurrent(HELPER_SCRIPT_SRC, HELPER_SCRIPT_DEST),
+      apply: () => installFile(HELPER_SCRIPT_SRC, HELPER_SCRIPT_DEST, 0o755),
+    },
+    {
+      // Antigravity rules owned by the repo (ops/antigravity/rules). The destination is a bind mount of
+      // <metaDir>/rules on the Windows host, so this survives a recreated container; a fresh machine or a
+      // lost meta folder gets them back on the next `up`. Rules the repo does not ship are left alone.
+      name: "antigravity-rules",
+      check: () => isRulesCurrent(RULES_SRC, RULES_DEST),
+      apply: () => installRules(RULES_SRC, RULES_DEST),
     },
     {
       name: "antigravity-mcp",

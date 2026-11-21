@@ -6,6 +6,8 @@ export interface SyncResult {
   ok: boolean;
   conflict: boolean;
   detail: string;
+  /** Paths that conflicted (only set when `conflict` is true). */
+  conflictFiles?: string[];
 }
 
 function git(repoDir: string, ...args: string[]) {
@@ -37,8 +39,12 @@ export function syncMainToIntegration(repoDir: string, mainBranch: string, integ
   const merge = git(repoDir, "merge", "--no-edit", `origin/${mainBranch}`);
   if (merge.code !== 0) {
     const isConflict = /CONFLICT|Automatic merge failed/i.test(merge.out);
+    // Read the conflicted paths while the merge is still in progress, then abort so nothing changes.
+    const conflictFiles = isConflict
+      ? git(repoDir, "diff", "--name-only", "--diff-filter=U").out.split("\n").map((l) => l.trim()).filter(Boolean).sort()
+      : undefined;
     if (isConflict) git(repoDir, "merge", "--abort");
-    return { ok: false, conflict: isConflict, detail: merge.out.trim() };
+    return { ok: false, conflict: isConflict, detail: merge.out.trim(), ...(conflictFiles ? { conflictFiles } : {}) };
   }
   const push = git(repoDir, "push", "origin", integrationBranch);
   return { ok: push.code === 0, conflict: false, detail: push.out.trim() || "synced and pushed" };

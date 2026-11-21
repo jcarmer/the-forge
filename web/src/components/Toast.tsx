@@ -89,7 +89,7 @@ export function ToastHost() {
         boxShadow: "0 2px 12px rgb(0 0 0 / 0.6)",
       }}
     >
-      <span style={{ flex: 1, minWidth: 0, overflowWrap: "anywhere", paddingTop: sticky ? 4 : 0 }}>
+      <span style={{ flex: 1, minWidth: 0, overflowWrap: "anywhere", whiteSpace: "pre-wrap", paddingTop: sticky ? 4 : 0 }}>
         {t.title && <strong>{t.title}: </strong>}
         {t.text}
         {t.url && /^https?:\/\//i.test(t.url) && (
