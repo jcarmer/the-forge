@@ -11,6 +11,8 @@ You are managing **The Forge**, a Docker-based AI development sandbox on the use
 ## Agent tooling guidance (all projects)
 Rules for tool choice and the `ollama-helper` local-model MCP (it must be loaded with `ToolSearch` first) live in `ops/claude-user/CLAUDE.md`. `the-forge up` installs them into `/root/.claude/CLAUDE.md` so they apply to every project, together with a Bash guard hook (`ops/claude-user/bash-guard.mjs`) that blocks bare `cat` of large files and unbounded recursive `grep`. Skills in `ops/claude-user/skills/` (e.g. `forge-orchestrate`, which plans work in T3 and delegates it to sub-agents by complexity and quota) are installed into `/root/.claude/skills/` the same way. Edit those files in the repo, never in the container, then run `npx tsx src/cli.ts up`.
 
+The `ollama-helper` MCP script (`ops/mcp/ollama_helper_mcp.py`) and Antigravity's rule files (`ops/antigravity/rules/*.md`, currently `02-ollama-local-llm.md`) are owned by the repo the same way: `up` copies them into `/root/.gemini/config/tools` and `/root/.gemini/config/rules`. Those folders are bind mounts of `<metaDir>/tools` and `<metaDir>/rules` on the Windows host, so a recreated container keeps them, and a fresh machine gets them back on the next `up`. Only files the repo ships are overwritten; any other rule in the meta folder is left alone. Don't hand-edit the managed files in the meta folder (changes are overwritten).
+
 
 ## Safe Commands (run freely to diagnose)
 - `npx tsx src/cli.ts status` — show container state
