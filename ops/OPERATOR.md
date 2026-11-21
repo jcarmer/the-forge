@@ -29,11 +29,20 @@ Rules for tool choice and the `ollama-helper` local-model MCP (it must be loaded
 ## Mutating Commands (explain first)
 - `npx tsx src/cli.ts up` — regenerate files, run preflight checks, build and start containers
 - `npx tsx src/cli.ts down` — stop containers (volumes are preserved)
-- `npx tsx src/cli.ts promote <repo>` — open a pull request from `ai-work` into `main` (you review and merge it on GitHub)
+- `npx tsx src/cli.ts promote <repo>` — open a pull request from `ai-work` into `main` (you review and merge it on GitHub). It first predicts whether the PR would conflict and prints the files and the steps to resolve them
 - `npx tsx src/cli.ts clone` — clone any missing manifest repos into `/projects`
-- `npx tsx src/cli.ts sync <repo>` — merge `origin/main` into `ai-work` (no force-push; conflicts become an agent task)
+- `npx tsx src/cli.ts sync <repo>` — merge `origin/main` into `ai-work` (no force-push). On a conflict nothing is changed: it prints the conflicting files and the steps to resolve them in your own clone (or hand it to an agent task)
 - `npx tsx src/cli.ts t3-pair [ttl]` — mint a one-time T3 pairing link/code (default 10m, single use); also a button on the web UI Services tab
 - `npx tsx src/cli.ts tunnel-login` — interactive GitHub device login for VS Code `code tunnel`
+
+## Git workflow and conflicts
+GitHub is the only shared truth. Agents write `task/<id>` and `ai-work`; you (e.g. with GitComet on the Windows desktop, from a clone of the GitHub repo) resolve conflicts in your own clone and push the result. Never push to the Forge's `/projects` checkouts directly.
+- **Conflict preview.** The web UI repo page has **Check for conflicts** (`POST /api/git/repo/<name>/sync-preview`): a read-only dry run (fetch, then a throwaway three-way merge; the working tree, index and refs are untouched) that lists the files that would conflict. Repo tiles show a "would conflict with main" chip and a "N behind main" chip from the same prediction (cached per commit pair).
+- **Conflicted `sync-main`** is aborted, changes nothing and returns `conflictFiles` plus copy-able `resolveSteps` (the page also has a **Copy resolve steps** button).
+- **Agent busy guard.** While an agent task is running in a repo (a `running` record newer than 6 hours in `tasks.json`), `push`, `commit-push` and `sync-main` on the integration branch are refused with HTTP 409, because the task merges into that branch itself. The Sync tool has an "sync anyway" checkbox; the API accepts `allowWhileBusy: true`. Other branches are never blocked.
+- **Scheduled drift check.** The `git-drift-check` job (Schedules tab) compares `origin/ai-work` with `origin/main` in every repo and reports drift and conflicting files. It never merges or pushes. Repos without `origin/ai-work` are skipped, and a run where nothing was compared says so instead of reporting "no conflicts".
+- **Line endings.** `up` sets the container's global `core.autocrlf=input` only if you have not set a value, so agent commits keep LF. A per-repo `.gitattributes` is deliberately not added automatically (it would show up as an uncommitted change in your repos); add `* text=auto` yourself if you want it enforced. On Windows, keep your own `core.autocrlf` consistent across clones.
+- Requires only plain `git` (the preview uses `read-tree` and `merge-file`, so it works on the container's git 2.34).
 
 ## Pull requests
 Gated agent tasks land via `git.taskMergeMode` in `sandbox.config.ts`: `pr` (default) pushes `task/<id>` and opens a PR into `ai-work`; `pr-merge` also squash-merges it; `direct` is the old local merge. PR URLs show on each task in the Tasks view. If `doctor` flags the GitHub CLI, the `GH_TOKEN` needs **Pull requests: read/write**.

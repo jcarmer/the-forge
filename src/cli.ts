@@ -10,6 +10,7 @@ import { collectUsage } from "./usage/collector.js";
 import { pickProvider, type TaskComplexity } from "./usage/router.js";
 import { UsageSnapshotSchema, type ProviderName } from "./usage/schema.js";
 import { syncMainToIntegration, createTaskWorktree, mergeTaskWorktree } from "./git/worktree.js";
+import { describeConflict, previewMerge } from "./git/conflicts.js";
 import { openPullRequest } from "./git/pullRequest.js";
 import { startPreviewLandingServer, syncPreviewWorktrees, syncTbeVscodeExtension } from "./preview/supervisor.js";
 import { checkCoderModelUpdates } from "./healthcheck/models.js";
@@ -130,7 +131,12 @@ switch (cmd) {
       break;
     }
     const r = syncMainToIntegration(repo, manifest.git.mainBranch, manifest.git.integrationBranch);
-    console.log(r.ok ? `OK: ${r.detail}` : `FAIL${r.conflict ? " (CONFLICT — spawn resolution task)" : ""}: ${r.detail}`);
+    if (r.ok) console.log(`OK: ${r.detail}`);
+    else if (r.conflict) {
+      // The merge was aborted and nothing changed. Show the files and how to resolve them in a local clone.
+      console.log(`FAIL (CONFLICT): merging origin/${manifest.git.mainBranch} into ${manifest.git.integrationBranch} conflicts; nothing was changed.`);
+      console.log(describeConflict(manifest.git.integrationBranch, manifest.git.mainBranch, r.conflictFiles ?? []));
+    } else console.log(`FAIL: ${r.detail}`);
     process.exitCode = r.ok ? 0 : 1;
     break;
   }
@@ -142,6 +148,14 @@ switch (cmd) {
       break;
     }
     const { mainBranch, integrationBranch } = manifest.git;
+    // Warn (never block) when the PR would not merge cleanly, so you can resolve it before reviewing.
+    const preview = await previewMerge(repo, `refs/remotes/origin/${integrationBranch}`, `refs/remotes/origin/${mainBranch}`);
+    if (preview.status === "conflicts") {
+      console.log(`WARNING: origin/${integrationBranch} conflicts with origin/${mainBranch}; the PR will not merge until this is resolved.`);
+      console.log(describeConflict(integrationBranch, mainBranch, preview.conflictFiles));
+    } else if (preview.status === "unknown") {
+      console.log(`Note: could not check for conflicts (${preview.reason ?? "unknown"}). Run \`git fetch\` first for an accurate result.`);
+    }
     const pr = openPullRequest(repo, {
       head: integrationBranch,
       base: mainBranch,

@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import type { Manifest } from "../schema.js";
 import { run } from "../ops.js";
@@ -6,6 +6,22 @@ import { installClaudeUserConfig, isClaudeUserConfigCurrent } from "./claudeUser
 
 const GH_CRED_HELPER =
   '!f() { [ "$1" = get ] && [ -n "$GH_TOKEN" ] && echo username=x-access-token && echo password=$GH_TOKEN; }; f';
+
+const HELPER_SCRIPT_SRC = "/opt/the-forge/ops/mcp/ollama_helper_mcp.py";
+const HELPER_SCRIPT_DEST = "/root/.gemini/config/tools/ollama_helper_mcp.py";
+
+/** True when `dest` exists and has exactly the repo copy's contents (a missing repo copy counts as current: nothing to install). */
+export function isHelperScriptCurrent(src: string, dest: string): boolean {
+  if (!existsSync(src)) return true;
+  return existsSync(dest) && readFileSync(dest, "utf8") === readFileSync(src, "utf8");
+}
+
+/** Copies the repo's helper script over `dest`, creating the directory if needed. */
+export function installHelperScript(src: string, dest: string): void {
+  mkdirSync(dirname(dest), { recursive: true });
+  copyFileSync(src, dest);
+  chmodSync(dest, 0o755);
+}
 
 export interface ProvisionStep {
   name: string;
@@ -92,6 +108,23 @@ export function buildProvisionSteps(manifest: Manifest): ProvisionStep[] {
         mergeJson("/projects/.vscode/settings.json", vscodeSettings);
         writeJsonIfMissingOrChanged("/projects/.vscode/extensions.json", { recommendations: ["local.tbe-vscode"] });
       },
+    },
+    {
+      // Linux-side default so agents' commits keep LF line endings (the repos are authored from Windows clones too);
+      // only set when the user has not chosen a value, so it never overrides an explicit setting.
+      name: "git-line-endings",
+      check: () => run("git", ["config", "--global", "--get", "core.autocrlf"]).out.trim() !== "",
+      apply: () => {
+        run("git", ["config", "--global", "core.autocrlf", "input"]);
+      },
+    },
+    {
+      // The ollama-helper MCP server (tool names, descriptions, reliability caveats) is versioned in the repo and
+      // installed to the path both the Antigravity and Claude registrations below point at, so a description change
+      // reaches both providers on the next `up`. Running servers pick it up on their next restart.
+      name: "ollama-helper-script",
+      check: () => isHelperScriptCurrent(HELPER_SCRIPT_SRC, HELPER_SCRIPT_DEST),
+      apply: () => installHelperScript(HELPER_SCRIPT_SRC, HELPER_SCRIPT_DEST),
     },
     {
       name: "antigravity-mcp",

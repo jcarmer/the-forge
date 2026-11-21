@@ -21,6 +21,15 @@ export function tileChips(r: GitRepoSummary): TileChip[] {
   if (r.changedFiles > 0 || r.dirty) {
     chips.push({ key: "dirty", label: `${r.changedFiles} uncommitted`, variant: "warning" });
   }
+  const conflicts = r.mainConflicts?.length ?? 0;
+  if (conflicts > 0) {
+    chips.push({ key: "conflicts", label: `would conflict with ${r.mainBranch ?? "main"} (${conflicts} file${conflicts === 1 ? "" : "s"})`, variant: "danger" });
+  } else if ((r.behindMain ?? 0) > 0) {
+    chips.push({ key: "behindMain", label: `${r.behindMain} behind ${r.mainBranch ?? "main"}`, variant: "secondary" });
+  }
+  if ((r.agentBusy?.length ?? 0) > 0) {
+    chips.push({ key: "agentBusy", label: `agent working (${r.agentBusy!.length}) - avoid pushing`, variant: "warning" });
+  }
   if (r.behind > 0) chips.push({ key: "behind", label: `behind ${r.behind} - needs pull`, variant: "danger" });
   if (r.ahead > 0) chips.push({ key: "ahead", label: `ahead ${r.ahead}`, variant: "info" });
   if (r.noUpstream) chips.push({ key: "noUpstream", label: "no upstream", variant: "warning" });

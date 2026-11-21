@@ -15,7 +15,7 @@ import { buildOverview, loadStories, renderDigest } from "../sessions/digest.js"
 import { enactImprovement, generateImprovements } from "../sessions/improve.js";
 import { storyForFile } from "../sessions/story.js";
 import { executeTask } from "../worker/runner.js";
-import { loadTaskRecords, taskStorePath, upsertTaskRecord } from "../worker/taskStore.js";
+import { loadTaskRecords, runningTaskIds, taskStorePath, upsertTaskRecord } from "../worker/taskStore.js";
 import { buildPackage, pushRepo, readPackageApiDts, scanPackages, scanRepos, togglePackageLink } from "../packages/hub.js";
 import { summarizeAllRepos, summarizeRepo } from "../git/repoSummary.js";
 import { RepoActionError } from "../git/repoResolve.js";
@@ -284,6 +284,7 @@ export function createForgeRequestHandler(ctx: ForgeApiContext, hub: ForgeStateH
           mainBranch: ctx.manifest.git.mainBranch,
           integrationBranch: ctx.manifest.git.integrationBranch,
           refresh: url.searchParams.get("refresh") === "1",
+          activeTasks: (dir: string) => runningTaskIds(ctx.stateDir, dir),
         };
         const one = url.searchParams.get("repo");
         let repos;
@@ -307,6 +308,7 @@ export function createForgeRequestHandler(ctx: ForgeApiContext, hub: ForgeStateH
             mainBranch: ctx.manifest.git.mainBranch,
             integrationBranch: ctx.manifest.git.integrationBranch,
             model: ctx.manifest.ollama.primaryModel,
+            activeTasks: (dir) => runningTaskIds(ctx.stateDir, dir),
           },
           { method: req.method ?? "GET", name: repoRoute.name, action: repoRoute.action, query: url.searchParams, body },
         );

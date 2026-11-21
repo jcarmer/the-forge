@@ -103,3 +103,26 @@ describe("tileQuickActions and filterRepos", () => {
   });
 });
 
+
+describe("tileChips: drift from main and busy agents", () => {
+  const keys = (r: GitRepoSummary) => tileChips(r).map((c) => c.key);
+
+  it("shows a danger chip naming the file count when merging main would conflict", () => {
+    const chips = tileChips({ ...base, branch: "ai-work", behindMain: 3, aheadOfMain: 2, mainConflicts: ["a.txt", "b.txt"], reasons: ["conflicts"], attention: "conflicts" });
+    const c = chips.find((x) => x.key === "conflicts");
+    expect(c).toMatchObject({ variant: "danger" });
+    expect(c?.label).toContain("2 files");
+    expect(chips.some((x) => x.key === "behindMain")).toBe(false); // the conflict chip replaces the plain count
+  });
+
+  it("shows a quiet behind-main chip when there is no conflict", () => {
+    expect(keys({ ...base, branch: "ai-work", behindMain: 2, mainConflicts: [] })).toContain("behindMain");
+    expect(keys({ ...base, behindMain: 0 })).not.toContain("behindMain");
+  });
+
+  it("warns while an agent task is running", () => {
+    const chip = tileChips({ ...base, agentBusy: ["t-1"] }).find((x) => x.key === "agentBusy");
+    expect(chip).toMatchObject({ variant: "warning" });
+    expect(keys({ ...base, agentBusy: [] })).not.toContain("agentBusy");
+  });
+});

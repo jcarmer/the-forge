@@ -54,7 +54,7 @@ export interface GitRepoPr {
   isDraft: boolean;
 }
 
-export type GitRepoReason = "dirty" | "behind" | "ahead" | "prs" | "branches";
+export type GitRepoReason = "dirty" | "conflicts" | "behind" | "ahead" | "prs" | "branches";
 
 export interface GitLastCommit {
   sha: string;
@@ -80,6 +80,14 @@ export interface GitRepoSummary {
   openPrs: GitRepoPr[] | null;
   ghAvailable: boolean;
   stashes: number;
+  /** Commits on origin/<main> that HEAD lacks (0 on main or when unknown). */
+  behindMain?: number;
+  /** Commits on HEAD that origin/<main> lacks. */
+  aheadOfMain?: number;
+  /** Files that would conflict if origin/<main> were merged into HEAD. */
+  mainConflicts?: string[];
+  /** Ids of agent tasks running in this repo right now. */
+  agentBusy?: string[];
   attention: GitRepoReason | "clean";
   reasons: GitRepoReason[];
 }
@@ -244,6 +252,14 @@ export interface GitActionResult {
   commit?: string;
   /** sync-main / stash-pop */
   conflict?: boolean;
+  /** sync-main / sync-preview: files that conflict, and copy-able steps for resolving them in a local clone */
+  conflictFiles?: string[];
+  resolveSteps?: string[];
+  /** sync-preview */
+  status?: "clean" | "conflicts" | "up-to-date" | "unknown";
+  behind?: number;
+  ahead?: number;
+  target?: string;
   /** pull */
   diverged?: boolean;
   commits?: number;

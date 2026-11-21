@@ -1,5 +1,5 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import type { TaskRecord } from "../state/forgeState.js";
 
 const DEFAULT_TASK_FILE = "/tmp/the-forge-tasks.json";
@@ -24,4 +24,23 @@ export function upsertTaskRecord(record: TaskRecord, filePath = taskStorePath())
   mkdirSync(dirname(filePath), { recursive: true });
   writeFileSync(filePath, JSON.stringify(next, null, 2), "utf8");
   return next;
+}
+
+/** A "running" record older than this is treated as crashed/abandoned, so it can never block a repo forever. */
+const RUNNING_STALE_MS = 6 * 60 * 60 * 1000;
+
+function canonical(p: string): string {
+  try {
+    return realpathSync(p);
+  } catch {
+    return resolve(p);
+  }
+}
+
+/** Ids of agent tasks currently running in the repo at `repoDir` (symlinks resolved; stale records ignored). */
+export function runningTaskIds(stateDir: string | undefined, repoDir: string, now = Date.now()): string[] {
+  const dir = canonical(repoDir);
+  return loadTaskRecords(taskStorePath(stateDir))
+    .filter((t) => t.status === "running" && now - Date.parse(t.startedAt) < RUNNING_STALE_MS && canonical(t.repoDir) === dir)
+    .map((t) => t.id);
 }
